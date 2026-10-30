@@ -1,0 +1,153 @@
+;; What tree-sitter's grammars answer to the C family adapter's queries for the C and C++ test files.
+;; Recorded by running the tests with CODECLOUD_RECORD set.
+{"test-resources/c-family/sample.cpp"
+ {:cpp
+  [{:form {:type "preproc_include", :line 1, :column 1, :end-line 2, :end-column 1}}
+   {:form {:type "preproc_include", :line 2, :column 1, :end-line 3, :end-column 1}}
+   {:form {:type "preproc_function_def", :line 3, :column 1, :end-line 4, :end-column 1}}
+   {:macro {:type "preproc_function_def", :line 3, :column 1, :end-line 4, :end-column 1}, :macro.name {:type "identifier", :line 3, :column 9, :end-line 3, :end-column 15, :text "SQUARE"}}
+   {:form {:type "preproc_def", :line 4, :column 1, :end-line 5, :end-column 1}}
+   {:value {:type "preproc_def", :line 4, :column 1, :end-line 5, :end-column 1}, :value.name {:type "identifier", :line 4, :column 9, :end-line 4, :end-column 14, :text "LIMIT"}}
+   {:form {:type "comment", :line 5, :column 1, :end-line 5, :end-column 44}}
+   {:form {:type "namespace_definition", :line 6, :column 1, :end-line 43, :end-column 2}}
+   {:form {:type "namespace_definition", :line 6, :column 17, :end-line 22, :end-column 2}}
+   {:form {:type "template_declaration", :line 7, :column 1, :end-line 19, :end-column 3}}
+   {:type {:type "class_specifier", :line 8, :column 1, :end-line 19, :end-column 2}, :type.name {:type "type_identifier", :line 8, :column 7, :end-line 8, :end-column 11, :text "Ring"}, :type.body {:type "field_declaration_list", :line 8, :column 35, :end-line 19, :end-column 2}}
+   {:function.untyped {:type "function_definition", :line 10, :column 3, :end-line 10, :end-column 53}, :function.call.name {:type "function_declarator", :line 10, :column 12, :end-line 10, :end-column 26, :text "Ring(int size)"}}
+   {:function.name {:type "identifier", :line 10, :column 12, :end-line 10, :end-column 16, :text "Ring"}}
+   {:function {:type "function_definition", :line 10, :column 3, :end-line 10, :end-column 53}, :function.body {:type "compound_statement", :line 10, :column 51, :end-line 10, :end-column 53}}
+   {:function.untyped {:type "function_definition", :line 11, :column 3, :end-line 11, :end-column 30}, :function.call.name {:type "function_declarator", :line 11, :column 3, :end-line 11, :end-column 19, :text "~Ring() override"}}
+   {:function.name {:type "destructor_name", :line 11, :column 3, :end-line 11, :end-column 8, :text "~Ring"}}
+   {:function.name {:type "operator_name", :line 12, :column 6, :end-line 12, :end-column 16, :text "operator[]"}}
+   {:function {:type "function_definition", :line 12, :column 3, :end-line 12, :end-column 61}, :function.body {:type "compound_statement", :line 12, :column 36, :end-line 12, :end-column 61}}
+   {:function.name {:type "operator_cast", :line 13, :column 3, :end-line 13, :end-column 33, :text "operator bool() const noexcept"}}
+   {:function {:type "function_definition", :line 13, :column 3, :end-line 13, :end-column 55}, :function.body {:type "compound_statement", :line 13, :column 34, :end-line 13, :end-column 55}}
+   {:function.name {:type "operator_name", :line 14, :column 8, :end-line 14, :end-column 18, :text "operator()"}}
+   {:function {:type "function_definition", :line 14, :column 3, :end-line 14, :end-column 61}, :function.body {:type "compound_statement", :line 14, :column 36, :end-line 14, :end-column 61}}
+   {:type {:type "struct_specifier", :line 15, :column 3, :end-line 15, :end-column 58}, :type.name {:type "type_identifier", :line 15, :column 10, :end-line 15, :end-column 14, :text "Node"}, :type.body {:type "field_declaration_list", :line 15, :column 15, :end-line 15, :end-column 58}}
+   {:function.name {:type "field_identifier", :line 15, :column 21, :end-line 15, :end-column 26, :text "value"}}
+   {:function {:type "function_definition", :line 15, :column 17, :end-line 15, :end-column 56}, :function.body {:type "compound_statement", :line 15, :column 35, :end-line 15, :end-column 56}}
+   {:form {:type "template_declaration", :line 20, :column 1, :end-line 21, :end-column 84}}
+   {:function.name {:type "qualified_identifier", :line 21, :column 3, :end-line 21, :end-column 17, :text "Ring<T>::front"}}
+   {:function {:type "function_definition", :line 21, :column 1, :end-line 21, :end-column 84}, :function.body {:type "compound_statement", :line 21, :column 26, :end-line 21, :end-column 84}}
+   {:form {:type "comment", :line 22, :column 4, :end-line 22, :end-column 23}}
+   {:form {:type "function_definition", :line 23, :column 1, :end-line 23, :end-column 57}}
+   {:function.name {:type "identifier", :line 23, :column 8, :end-line 23, :end-column 19, :text "get_handler"}}
+   {:function {:type "function_definition", :line 23, :column 1, :end-line 23, :end-column 57}, :function.body {:type "compound_statement", :line 23, :column 38, :end-line 23, :end-column 57}}
+   {:form {:type "function_definition", :line 24, :column 1, :end-line 24, :end-column 76}}
+   {:function.name {:type "identifier", :line 24, :column 13, :end-line 24, :end-column 20, :text "name_of"}}
+   {:function {:type "function_definition", :line 24, :column 1, :end-line 24, :end-column 76}, :function.body {:type "compound_statement", :line 24, :column 29, :end-line 24, :end-column 76}}
+   {:form {:type "function_definition", :line 25, :column 1, :end-line 25, :end-column 77}}
+   {:function.name {:type "identifier", :line 25, :column 19, :end-line 25, :end-column 24, :text "cache"}}
+   {:function {:type "function_definition", :line 25, :column 1, :end-line 25, :end-column 77}, :function.body {:type "compound_statement", :line 25, :column 27, :end-line 25, :end-column 77}}
+   {:form {:type "type_definition", :line 26, :column 1, :end-line 26, :end-column 39}}
+   {:type {:type "type_definition", :line 26, :column 1, :end-line 26, :end-column 39}, :type.name {:type "type_identifier", :line 26, :column 33, :end-line 26, :end-column 38, :text "Point"}}
+   {:form {:type "enum_specifier", :line 27, :column 1, :end-line 27, :end-column 48}}
+   {:type {:type "enum_specifier", :line 27, :column 1, :end-line 27, :end-column 48}, :type.name {:type "type_identifier", :line 27, :column 12, :end-line 27, :end-column 17, :text "Color"}}
+   {:form {:type "alias_declaration", :line 28, :column 1, :end-line 28, :end-column 37}}
+   {:type {:type "alias_declaration", :line 28, :column 1, :end-line 28, :end-column 37}, :type.name {:type "type_identifier", :line 28, :column 7, :end-line 28, :end-column 14, :text "Samples"}}
+   {:form {:type "declaration", :line 29, :column 1, :end-line 29, :end-column 30}}
+   {:value {:type "declaration", :line 29, :column 1, :end-line 29, :end-column 30}, :value.name {:type "identifier", :line 29, :column 18, :end-line 29, :end-column 23, :text "kRate"}}
+   {:form {:type "function_definition", :line 30, :column 1, :end-line 30, :end-column 51}}
+   {:function.stored {:type "function_definition", :line 30, :column 1, :end-line 30, :end-column 51}, :function.storage.name {:type "storage_class_specifier", :line 30, :column 1, :end-line 30, :end-column 7, :text "static"}}
+   {:function.name {:type "identifier", :line 30, :column 12, :end-line 30, :end-column 18, :text "helper"}}
+   {:function {:type "function_definition", :line 30, :column 1, :end-line 30, :end-column 51}, :function.body {:type "compound_statement", :line 30, :column 30, :end-line 30, :end-column 51}}
+   {:form {:type "namespace_definition", :line 31, :column 1, :end-line 33, :end-column 2}}
+   {:unnamed.namespace {:type "declaration_list", :line 31, :column 11, :end-line 33, :end-column 2}}
+   {:form {:type "function_definition", :line 32, :column 1, :end-line 32, :end-column 39}}
+   {:function.name {:type "identifier", :line 32, :column 5, :end-line 32, :end-column 11, :text "hidden"}}
+   {:function {:type "function_definition", :line 32, :column 1, :end-line 32, :end-column 39}, :function.body {:type "compound_statement", :line 32, :column 14, :end-line 32, :end-column 39}}
+   {:form {:type "linkage_specification", :line 34, :column 1, :end-line 36, :end-column 2}}
+   {:form {:type "function_definition", :line 35, :column 1, :end-line 35, :end-column 30}}
+   {:function.name {:type "identifier", :line 35, :column 5, :end-line 35, :end-column 10, :text "c_api"}}
+   {:function {:type "function_definition", :line 35, :column 1, :end-line 35, :end-column 30}, :function.body {:type "compound_statement", :line 35, :column 17, :end-line 35, :end-column 30}}
+   {:form {:type "preproc_ifdef", :line 37, :column 1, :end-line 41, :end-column 7}}
+   {:function.name {:type "identifier", :line 38, :column 6, :end-line 38, :end-column 16, :text "debug_dump"}}
+   {:function {:type "function_definition", :line 38, :column 1, :end-line 38, :end-column 22}, :function.body {:type "compound_statement", :line 38, :column 19, :end-line 38, :end-column 22}}
+   {:function.name {:type "identifier", :line 40, :column 6, :end-line 40, :end-column 16, :text "debug_dump"}}
+   {:function {:type "function_definition", :line 40, :column 1, :end-line 40, :end-column 36}, :function.body {:type "compound_statement", :line 40, :column 19, :end-line 40, :end-column 36}}
+   {:form {:type "function_definition", :line 42, :column 1, :end-line 42, :end-column 45}}
+   {:function.untyped {:type "function_definition", :line 42, :column 1, :end-line 42, :end-column 45}, :function.call.name {:type "function_declarator", :line 42, :column 1, :end-line 42, :end-column 22, :text "TEST(RingTest, Grows)"}}
+   {:function.name {:type "identifier", :line 42, :column 1, :end-line 42, :end-column 5, :text "TEST"}}
+   {:function {:type "function_definition", :line 42, :column 1, :end-line 42, :end-column 45}, :function.body {:type "compound_statement", :line 42, :column 23, :end-line 42, :end-column 45}}
+   {:form {:type "comment", :line 43, :column 4, :end-line 43, :end-column 20}}]}
+ "test-resources/polyglot/native/cpp/Board.cpp"
+ {:cpp
+  [{:form {:type "preproc_include", :line 1, :column 1, :end-line 2, :end-column 1}}
+   {:form {:type "namespace_definition", :line 3, :column 1, :end-line 20, :end-column 2}}
+   {:form {:type "function_definition", :line 5, :column 1, :end-line 5, :end-column 59}}
+   {:function.untyped {:type "function_definition", :line 5, :column 1, :end-line 5, :end-column 59}, :function.call.name {:type "function_declarator", :line 5, :column 1, :end-line 5, :end-column 31, :text "Board::Board(std::string port)"}}
+   {:function.name {:type "qualified_identifier", :line 5, :column 1, :end-line 5, :end-column 13, :text "Board::Board"}}
+   {:function {:type "function_definition", :line 5, :column 1, :end-line 5, :end-column 59}, :function.body {:type "compound_statement", :line 5, :column 57, :end-line 5, :end-column 59}}
+   {:form {:type "function_definition", :line 7, :column 1, :end-line 13, :end-column 2}}
+   {:function.name {:type "qualified_identifier", :line 7, :column 21, :end-line 7, :end-column 32, :text "Board::read"}}
+   {:function {:type "function_definition", :line 7, :column 1, :end-line 13, :end-column 2}, :function.body {:type "compound_statement", :line 7, :column 52, :end-line 13, :end-column 2}}
+   {:form {:type "function_definition", :line 15, :column 1, :end-line 18, :end-column 2}}
+   {:function.name {:type "qualified_identifier", :line 15, :column 6, :end-line 15, :end-column 19, :text "Board::stream"}}
+   {:function {:type "function_definition", :line 15, :column 1, :end-line 18, :end-column 2}, :function.body {:type "compound_statement", :line 15, :column 39, :end-line 18, :end-column 2}}
+   {:form {:type "comment", :line 20, :column 4, :end-line 20, :end-column 20}}]}
+ "test-resources/polyglot/native/cpp/Board.hpp"
+ {:cpp
+  [{:form {:type "preproc_call", :line 1, :column 1, :end-line 2, :end-column 1}}
+   {:form {:type "preproc_include", :line 2, :column 1, :end-line 3, :end-column 1}}
+   {:form {:type "preproc_include", :line 3, :column 1, :end-line 4, :end-column 1}}
+   {:form {:type "preproc_include", :line 4, :column 1, :end-line 5, :end-column 1}}
+   {:form {:type "preproc_include", :line 5, :column 1, :end-line 6, :end-column 1}}
+   {:form {:type "namespace_definition", :line 7, :column 1, :end-line 21, :end-column 2}}
+   {:form {:type "class_specifier", :line 9, :column 1, :end-line 19, :end-column 2}}
+   {:type {:type "class_specifier", :line 9, :column 1, :end-line 19, :end-column 2}, :type.name {:type "type_identifier", :line 9, :column 7, :end-line 9, :end-column 12, :text "Board"}, :type.body {:type "field_declaration_list", :line 9, :column 13, :end-line 19, :end-column 2}}
+   {:function.name {:type "identifier", :line 11, :column 12, :end-line 11, :end-column 17, :text "Board"}}
+   {:function.name {:type "field_identifier", :line 12, :column 23, :end-line 12, :end-column 27, :text "read"}}
+   {:function.name {:type "field_identifier", :line 13, :column 8, :end-line 13, :end-column 14, :text "stream"}}
+   {:function.name {:type "field_identifier", :line 14, :column 8, :end-line 14, :end-column 12, :text "open"}}
+   {:function {:type "function_definition", :line 14, :column 3, :end-line 14, :end-column 47}, :function.body {:type "compound_statement", :line 14, :column 21, :end-line 14, :end-column 47}}
+   {:form {:type "comment", :line 21, :column 4, :end-line 21, :end-column 20}}]}
+ "test-resources/polyglot/native/cpp/Board_test.cpp"
+ {:cpp
+  [{:form {:type "preproc_include", :line 1, :column 1, :end-line 2, :end-column 1}}
+   {:form {:type "preproc_include", :line 2, :column 1, :end-line 3, :end-column 1}}
+   {:form {:type "function_definition", :line 4, :column 1, :end-line 7, :end-column 2}}
+   {:function.untyped {:type "function_definition", :line 4, :column 1, :end-line 7, :end-column 2}, :function.call.name {:type "function_declarator", :line 4, :column 1, :end-line 4, :end-column 43, :text "TEST(BoardTest, ReadsAsManySamplesAsAsked)"}}
+   {:function.name {:type "identifier", :line 4, :column 1, :end-line 4, :end-column 5, :text "TEST"}}
+   {:function {:type "function_definition", :line 4, :column 1, :end-line 7, :end-column 2}, :function.body {:type "compound_statement", :line 4, :column 44, :end-line 7, :end-column 2}}]}
+ "test-resources/polyglot/native/cpp/main.cpp"
+ {:cpp
+  [{:form {:type "preproc_include", :line 1, :column 1, :end-line 2, :end-column 1}}
+   {:form {:type "preproc_include", :line 2, :column 1, :end-line 3, :end-column 1}}
+   {:form {:type "preproc_include", :line 3, :column 1, :end-line 4, :end-column 1}}
+   {:form {:type "namespace_definition", :line 5, :column 1, :end-line 15, :end-column 2}}
+   {:unnamed.namespace {:type "declaration_list", :line 5, :column 11, :end-line 15, :end-column 2}}
+   {:form {:type "function_definition", :line 7, :column 1, :end-line 13, :end-column 2}}
+   {:function.name {:type "identifier", :line 7, :column 8, :end-line 7, :end-column 16, :text "smoothed"}}
+   {:function {:type "function_definition", :line 7, :column 1, :end-line 13, :end-column 2}, :function.body {:type "compound_statement", :line 7, :column 36, :end-line 13, :end-column 2}}
+   {:form {:type "comment", :line 15, :column 4, :end-line 15, :end-column 16}}
+   {:form {:type "function_definition", :line 17, :column 1, :end-line 24, :end-column 2}}
+   {:function.name {:type "identifier", :line 17, :column 5, :end-line 17, :end-column 9, :text "main"}}
+   {:function {:type "function_definition", :line 17, :column 1, :end-line 24, :end-column 2}, :function.body {:type "compound_statement", :line 17, :column 12, :end-line 24, :end-column 2}}]}
+ "test-resources/polyglot/native/cpp/ring.h"
+ {:cpp
+  [{:form {:type "preproc_call", :line 1, :column 1, :end-line 2, :end-column 1}}
+   {:form {:type "preproc_include", :line 2, :column 1, :end-line 3, :end-column 1}}
+   {:form {:type "namespace_definition", :line 4, :column 1, :end-line 19, :end-column 2}}
+   {:form {:type "template_declaration", :line 6, :column 1, :end-line 17, :end-column 3}}
+   {:type {:type "class_specifier", :line 7, :column 1, :end-line 17, :end-column 2}, :type.name {:type "type_identifier", :line 7, :column 7, :end-line 7, :end-column 11, :text "Ring"}, :type.body {:type "field_declaration_list", :line 7, :column 12, :end-line 17, :end-column 2}}
+   {:function.name {:type "field_identifier", :line 9, :column 8, :end-line 9, :end-column 12, :text "push"}}
+   {:function {:type "function_definition", :line 9, :column 3, :end-line 12, :end-column 4}, :function.body {:type "compound_statement", :line 9, :column 22, :end-line 12, :end-column 4}}
+   {:form {:type "comment", :line 19, :column 4, :end-line 19, :end-column 20}}]}
+ "test-resources/polyglot/native/include/filter.h"
+ {:c
+  [{:form {:type "preproc_ifdef", :line 1, :column 1, :end-line 10, :end-column 7}}
+   {:value {:type "preproc_def", :line 4, :column 1, :end-line 5, :end-column 1}, :value.name {:type "identifier", :line 4, :column 9, :end-line 4, :end-column 21, :text "FILTER_ORDER"}}
+   {:macro {:type "preproc_function_def", :line 5, :column 1, :end-line 6, :end-column 1}, :macro.name {:type "identifier", :line 5, :column 9, :end-line 5, :end-column 14, :text "CLAMP"}}
+   {:function.name {:type "identifier", :line 8, :column 8, :end-line 8, :end-column 21, :text "filter_sample"}}]}
+ "test-resources/polyglot/native/src/filter.c"
+ {:c
+  [{:form {:type "preproc_include", :line 1, :column 1, :end-line 2, :end-column 1}}
+   {:form {:type "preproc_include", :line 2, :column 1, :end-line 3, :end-column 1}}
+   {:form {:type "function_definition", :line 4, :column 1, :end-line 6, :end-column 2}}
+   {:function.stored {:type "function_definition", :line 4, :column 1, :end-line 6, :end-column 2}, :function.storage.name {:type "storage_class_specifier", :line 4, :column 1, :end-line 4, :end-column 7, :text "static"}}
+   {:function.name {:type "identifier", :line 4, :column 15, :end-line 4, :end-column 22, :text "clamped"}}
+   {:function {:type "function_definition", :line 4, :column 1, :end-line 6, :end-column 2}, :function.body {:type "compound_statement", :line 4, :column 38, :end-line 6, :end-column 2}}
+   {:form {:type "function_definition", :line 8, :column 1, :end-line 13, :end-column 2}}
+   {:function.name {:type "identifier", :line 8, :column 8, :end-line 8, :end-column 21, :text "filter_sample"}}
+   {:function {:type "function_definition", :line 8, :column 1, :end-line 13, :end-column 2}, :function.body {:type "compound_statement", :line 8, :column 52, :end-line 13, :end-column 2}}]}}

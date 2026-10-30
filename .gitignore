@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+.cpcache/
+dev/harness.js
+*.vsix
+dev/data/*.edn
+!dev/data/orchard.edn
+!dev/data/polyglot.edn

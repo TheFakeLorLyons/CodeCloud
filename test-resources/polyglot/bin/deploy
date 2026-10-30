@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+rsync -a web/ server:/srv/www/

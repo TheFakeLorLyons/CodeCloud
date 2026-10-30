@@ -1,0 +1,12 @@
+@use "sass:math";
+@use "mixins";
+
+// Charts sit on a card.
+.card {
+  @include mixins.raised;
+  padding: math.div(24px, 2);
+
+  &:hover {
+    opacity: 0.9;
+  }
+}

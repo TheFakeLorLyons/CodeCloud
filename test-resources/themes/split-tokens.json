@@ -1,0 +1,5 @@
+{
+	"tokenColors": [
+		{ "scope": "comment", "settings": { "foreground": "#93a1a1", "fontStyle": "italic" } }
+	]
+}

@@ -1,0 +1,146 @@
+;; What CodeCloud should find in test-resources/polyglot, stated by hand.
+{:languages {"bin/deploy" :shell
+             "bin/env.sh" :shell
+             "bin/run.sh" :shell
+             "native/cpp/Board.cpp" :cpp
+             "native/cpp/Board.hpp" :cpp
+             "native/cpp/Board_test.cpp" :cpp
+             "native/cpp/main.cpp" :cpp
+             ;; A .h file whose code is C++ reads as C++.
+             "native/cpp/ring.h" :cpp
+             "native/include/filter.h" :c
+             "native/src/filter.c" :c
+             "scripts/train.py" :python
+             "src/app/core.cljs" :clojure
+             "src/app/state.cljs" :clojure
+             "src/eeg/__init__.py" :python
+             "src/eeg/board.py" :python
+             "src/eeg/filters.py" :python
+             "src/eeg/stream.py" :python
+             "tasks/report.clj" :clojure
+             "web/about.html" :html
+             "web/css/base.css" :css
+             "web/css/main.css" :css
+             "web/css/theme.css" :css
+             "web/index.html" :html
+             "web/js/app.js" :javascript
+             "web/js/colors.js" :javascript
+             "web/js/plot.js" :javascript
+             "web/js/util.ts" :typescript
+             "web/scss/_mixins.scss" :css
+             "web/scss/app.scss" :css}
+ ;; Files whose names CodeCloud reads, left out once read.
+ :skipped #{"bin/blob" "web/js/vendor.min.js"}
+ ;; Files whose names CodeCloud never reads as pages. The pyproject.toml
+ ;; is read as a manifest, which marks a Python project's folder, and the
+ ;; CMakeLists.txt names the folder C's headers are included from.
+ :unread #{"README.md" "deps.edn"}
+ :manifests #{"pyproject.toml" "native/CMakeLists.txt"}
+ ;; Headers on their source file's page: beside it, or across folders as
+ ;; the only header and source sharing a stem.
+ :pairs {"native/cpp/Board.hpp" "native/cpp/Board.cpp"
+         "native/include/filter.h" "native/src/filter.c"}
+ ;; Every edge, as [from to kind].
+ :edges #{["app.core" "app.state" :load]
+          ["native/cpp/Board.cpp" "native/cpp/ring.h" :include]
+          ["native/cpp/Board_test.cpp" "native/cpp/Board.cpp" :include]
+          ["native/cpp/main.cpp" "native/cpp/Board.cpp" :include]
+          ["native/cpp/main.cpp" "native/src/filter.c" :include]
+          ["app.core" "web/js/plot.js" :interop]
+          ["bin/run.sh" "bin/deploy" :invoke]
+          ["bin/run.sh" "bin/env.sh" :source]
+          ["bin/run.sh" "report" :invoke]
+          ["bin/run.sh" "scripts/train.py" :invoke]
+          ["report" "bin/env.sh" :invoke]
+          ["scripts/train.py" "src/eeg/__init__.py" :import]
+          ["scripts/train.py" "src/eeg/filters.py" :import]
+          ["src/eeg/__init__.py" "src/eeg/filters.py" :import]
+          ["src/eeg/__init__.py" "src/eeg/stream.py" :import]
+          ["src/eeg/board.py" "src/eeg/stream.py" :import]
+          ["src/eeg/stream.py" "src/eeg/board.py" :import]
+          ["src/eeg/stream.py" "src/eeg/filters.py" :import]
+          ["web/about.html" "web/css/main.css" :style]
+          ["web/about.html" "web/index.html" :link]
+          ["web/css/main.css" "web/css/base.css" :import]
+          ["web/css/main.css" "web/css/theme.css" :import]
+          ["web/index.html" "web/about.html" :link]
+          ["web/index.html" "web/css/main.css" :style]
+          ["web/index.html" "web/js/app.js" :script]
+          ["web/index.html" "web/js/plot.js" :script]
+          ["web/js/app.js" "web/js/plot.js" :import]
+          ["web/js/app.js" "web/js/util.ts" :import]
+          ["web/js/colors.js" "web/js/plot.js" :import]
+          ["web/js/plot.js" "web/js/colors.js" :import]
+          ["web/scss/app.scss" "web/scss/_mixins.scss" :import]}
+ ;; Edges between two language families, drawn heavier in the Language
+ ;; color mode.
+ :cross-language #{["app.core" "web/js/plot.js"]
+                   ["bin/run.sh" "report"]
+                   ["bin/run.sh" "scripts/train.py"]
+                   ["report" "bin/env.sh"]
+                   ["web/about.html" "web/css/main.css"]
+                   ["web/index.html" "web/css/main.css"]
+                   ["web/index.html" "web/js/app.js"]
+                   ["web/index.html" "web/js/plot.js"]}
+ ;; Import loops their languages allow, which draw amber.
+ :loops #{#{"src/eeg/board.py" "src/eeg/stream.py"}
+          #{"web/js/colors.js" "web/js/plot.js"}}
+ ;; Definitions of the files the scanner reads, as [name kind].
+ :definitions {"bin/run.sh" [["record" :function]]
+               "native/cpp/Board.cpp" [["Board::Board" :function] ["Board::read" :function] ["Board::stream" :function]]
+               "native/cpp/Board.hpp" [["Board" :type] ["Board::open" :function]]
+               "native/cpp/Board_test.cpp" [["TEST(BoardTest, ReadsAsManySamplesAsAsked)" :test]]
+               "native/cpp/main.cpp" [["smoothed" :function] ["main" :function]]
+               "native/cpp/ring.h" [["Ring" :type] ["Ring::push" :function]]
+               "native/include/filter.h" [["FILTER_ORDER" :value] ["CLAMP" :macro]]
+               "native/src/filter.c" [["clamped" :function] ["filter_sample" :function]]
+               "scripts/train.py" [["main" :function]]
+               "src/eeg/board.py" [["connect" :function] ["read_samples" :function] ["RATE" :value]
+                                   ["_connection" :value]]
+               "src/eeg/filters.py" [["bandpass" :function] ["notch" :function] ["adaptive" :function]]
+               "src/eeg/stream.py" [["Stream" :type] ["Stream.__init__" :function] ["Stream.read" :function]
+                                    ["open_stream" :function] ["BUFFER_SIZE" :value] ["_streams" :value]]
+               "web/js/app.js" [["canvas" :value] ["pattern" :value] ["start" :function]]
+               "web/js/plot.js" [["WIDTH" :value] ["plot" :function]]
+               "web/js/util.ts" [["Window" :type] ["smooth" :function]]
+               "web/scss/_mixins.scss" [["raised" :function]]}
+ ;; The definitions past their thresholds, counted by hand: adaptive has
+ ;; nine decision points (for, if, elif, elif, if, a comprehension's for,
+ ;; for, if, and while), start awaits twice, fetches, and sets a timeout,
+ ;; and record runs a command in the background and waits for it.
+ ;; Board::stream starts a thread and detaches it.
+ :hotspots {"src/eeg/filters.py" [["adaptive" 0.5 {:branches 9}]]
+            "native/cpp/Board.cpp" [["Board::stream" 1.0 {:asynchronous 2}]]
+            "web/js/app.js" [["start" 3.0 {:asynchronous 4}]]
+            "bin/run.sh" [["record" 1.0 {:asynchronous 2}]]}
+ ;; Uses of each definition from other pages. A C or C++ page counts the
+ ;; names its includers write, Board three times and read twice.
+ :inbound {"src/eeg/filters.py" {"bandpass" 1 "notch" 1}
+           "native/cpp/Board.cpp" {"Board" 3 "Board::read" 2 "Board::open" 1}
+           "native/cpp/ring.h" {"Ring" 1}
+           "native/src/filter.c" {"filter_sample" 1}
+           "src/eeg/board.py" {"read_samples" 1 "RATE" 1}
+           "src/eeg/stream.py" {"BUFFER_SIZE" 1}
+           "web/js/plot.js" {"plot" 1 "WIDTH" 2}
+           "web/js/colors.js" {"scaleFor" 1}
+           "web/js/util.ts" {"smooth" 1}}
+ ;; Top-level forms, as [line end-line].
+ :forms {"src/eeg/board.py" [[1 1] [2 2] [4 4] [6 6] [7 7] [10 14] [17 20]]
+         "native/src/filter.c" [[1 1] [2 2] [4 6] [8 13]]
+         "native/cpp/Board.cpp" [[1 1] [5 5] [7 13] [15 18]]
+         "web/js/app.js" [[1 1] [2 2] [3 3] [5 5] [6 6] [8 14] [16 16]]
+         "bin/run.sh" [[3 3] [5 5] [6 6] [8 16] [18 18] [19 19] [20 20] [21 23] [24 24]]
+         "web/css/main.css" [[1 1] [2 2] [4 7] [9 12]]}
+ ;; Imports that reach nothing in the cloud.
+ :external {"src/eeg/stream.py" ["asyncio"]
+            "native/cpp/Board.cpp" ["string" "thread" "vector"]
+            "native/cpp/Board_test.cpp" ["gtest/gtest.h"]
+            "native/cpp/main.cpp" ["cstdio"]
+            "native/cpp/ring.h" ["cstddef"]
+            "native/src/filter.c" ["math.h"]
+            "scripts/train.py" ["sys"]
+            "src/eeg/filters.py" ["math" "numpy"]
+            "src/eeg/board.py" ["time"]
+            "web/scss/app.scss" ["sass:math"]
+            "report" ["babashka.process" "clojure.string"]
+            "web/js/app.js" ["three"]}}

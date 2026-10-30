@@ -1,0 +1,13 @@
+;; CodeCloud drawing itself. Opening this file in VS Code with CodeCloud
+;; installed shows the cloud; "CodeCloud: Edit Cloud Settings" opens it as
+;; text.
+{:ignore ["out/" "dist/" "dev/" "node_modules/" ".cpcache/" "test-resources/"]
+ :views {:model ["src/codecloud/model/" "src/codecloud/languages/" "src/codecloud/languages.cljc"
+                 "src/codecloud/protocol.cljc"]
+         :view ["src/codecloud/presentation/" "src/codecloud/render/"]
+         :host ["src/codecloud/io/" "src/codecloud/vscode/" "src/codecloud/cli.cljs"]
+         :tests ["test/"]}
+ :flags {:todo ["TODO" "FIXME" "HACK"]}
+ :weights {:functions 1.0
+           :references 1.0
+           :lines 1.0}}

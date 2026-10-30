@@ -1,0 +1,7 @@
+{
+  "name": "CodeCloud",
+  "scopeName": "source.codecloud",
+  "patterns": [
+    { "include": "source.clojure" }
+  ]
+}

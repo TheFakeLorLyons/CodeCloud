@@ -1,0 +1,282 @@
+{
+  "name": "codecloud",
+  "displayName": "CodeCloud",
+  "description": "See a codebase as pages of real code floating among folder clouds, colored by folder or language, and zoom between the cloud and the editor.",
+  "version": "0.4.0",
+  "publisher": "lorelailyons",
+  "author": "Lorelai Lyons",
+  "license": "MIT",
+  "private": true,
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheFakeLorLyons/codecloud"
+  },
+  "galleryBanner": {
+    "color": "#4f8fd8",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "clojure",
+    "clojurescript",
+    "python",
+    "javascript",
+    "c++",
+    "visualization",
+    "dependencies",
+    "namespaces",
+    "architecture"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "codecloud.cloud",
+        "displayName": "CodeCloud",
+        "selector": [
+          {
+            "filenamePattern": "*.cld"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "languages": [
+      {
+        "id": "codecloud",
+        "aliases": [
+          "CodeCloud",
+          "codecloud"
+        ],
+        "extensions": [
+          ".cld"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./media/cld-file.svg",
+          "dark": "./media/cld-file.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "codecloud",
+        "scopeName": "source.codecloud",
+        "path": "./syntaxes/codecloud.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "codecloud.enter",
+        "title": "Enter Cloud View",
+        "category": "CodeCloud",
+        "icon": "$(cloud)"
+      },
+      {
+        "command": "codecloud.zoomOut",
+        "title": "Zoom Out Toward the Cloud",
+        "category": "CodeCloud",
+        "icon": "$(zoom-out)"
+      },
+      {
+        "command": "codecloud.zoomIn",
+        "title": "Zoom Back In",
+        "category": "CodeCloud",
+        "icon": "$(zoom-in)"
+      },
+      {
+        "command": "codecloud.createCloudFile",
+        "title": "Create Cloud Here",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.editCloudFile",
+        "title": "Edit Cloud Settings",
+        "category": "CodeCloud",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "codecloud.refresh",
+        "title": "Refresh Cloud",
+        "category": "CodeCloud",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codecloud.showOnlyInCloud",
+        "title": "Show Only These in the Cloud",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.hideInCloud",
+        "title": "Hide in the Cloud",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.showEverything",
+        "title": "Show Everything in the Cloud",
+        "category": "CodeCloud"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "codecloud.enter",
+          "when": "resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|cc|cjs|clj|cljc|cljd|cljr|cljs|cpp|cs|css|cts|cxx|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i",
+          "group": "navigation@90"
+        },
+        {
+          "command": "codecloud.editCloudFile",
+          "when": "activeCustomEditorId == codecloud.cloud",
+          "group": "navigation@90"
+        },
+        {
+          "command": "codecloud.refresh",
+          "when": "activeCustomEditorId == codecloud.cloud",
+          "group": "navigation@91"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "codecloud.showOnlyInCloud",
+          "group": "codecloud@1"
+        },
+        {
+          "command": "codecloud.hideInCloud",
+          "group": "codecloud@2"
+        },
+        {
+          "command": "codecloud.createCloudFile",
+          "when": "explorerResourceIsFolder",
+          "group": "codecloud@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "codecloud.showOnlyInCloud",
+          "when": "false"
+        },
+        {
+          "command": "codecloud.hideInCloud",
+          "when": "false"
+        },
+        {
+          "command": "codecloud.zoomIn",
+          "when": "codecloud.zoomedOut"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "codecloud.zoomOut",
+        "key": "ctrl+alt+-",
+        "mac": "cmd+alt+-",
+        "linux": "ctrl+shift+alt+-",
+        "when": "editorTextFocus && resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|cc|cjs|cld|clj|cljc|cljd|cljr|cljs|cpp|cs|css|cts|cxx|edn|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i"
+      },
+      {
+        "command": "codecloud.zoomIn",
+        "key": "ctrl+alt+=",
+        "mac": "cmd+alt+=",
+        "linux": "ctrl+shift+alt+=",
+        "when": "editorTextFocus && codecloud.zoomedOut"
+      },
+      {
+        "command": "codecloud.zoomOut",
+        "key": "ctrl+-",
+        "mac": "cmd+-",
+        "when": "editorTextFocus && config.codecloud.useStandardZoomKeys && codecloud.inCloud && resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|cc|cjs|cld|clj|cljc|cljd|cljr|cljs|cpp|cs|css|cts|cxx|edn|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i"
+      },
+      {
+        "command": "codecloud.zoomOut",
+        "key": "ctrl+numpad_subtract",
+        "mac": "cmd+numpad_subtract",
+        "when": "editorTextFocus && config.codecloud.useStandardZoomKeys && codecloud.inCloud && resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|cc|cjs|cld|clj|cljc|cljd|cljr|cljs|cpp|cs|css|cts|cxx|edn|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i"
+      },
+      {
+        "command": "codecloud.zoomIn",
+        "key": "ctrl+=",
+        "mac": "cmd+=",
+        "when": "editorTextFocus && config.codecloud.useStandardZoomKeys && codecloud.zoomedOut"
+      },
+      {
+        "command": "codecloud.zoomIn",
+        "key": "ctrl+numpad_add",
+        "mac": "cmd+numpad_add",
+        "when": "editorTextFocus && config.codecloud.useStandardZoomKeys && codecloud.zoomedOut"
+      }
+    ],
+    "configuration": {
+      "title": "CodeCloud",
+      "properties": {
+        "codecloud.zoomOutThreshold": {
+          "type": "number",
+          "default": 150,
+          "minimum": 100,
+          "maximum": 200,
+          "markdownDescription": "How far to zoom out of a source file before its cloud opens, in percent, as with the zoom of a map. At `150` the cloud opens once code has shrunk to two thirds of its size, on the fourth press of the zoom-out key; at `200` it opens at half size; at `100` it opens on the first press."
+        },
+        "codecloud.useStandardZoomKeys": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Let the usual zoom keys (`Ctrl+-` and `Ctrl+=`) zoom files a cloud covers toward the cloud and back, so leaving the cloud and returning to it take the same keys. Everywhere else they keep zooming the whole window."
+        },
+        "codecloud.sky": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "day",
+            "twilight",
+            "night",
+            "clock"
+          ],
+          "enumDescriptions": [
+            "Follow the editor theme: a day sky with light themes and a night sky with dark ones.",
+            "Always a day sky.",
+            "Always a sunset sky, with night pages.",
+            "Always a night sky.",
+            "Follow the local time of day, with dusk and dawn between."
+          ],
+          "description": "The sky behind the cloud. The sky button in the cloud changes this setting too."
+        },
+        "codecloud.editorColors": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Color code on pages with the editor theme's syntax colors, font styles, and bracket pair colors in place of CodeCloud's own. Each color moves in lightness only as far as it must to read on the sky. The Editor theme colors switch in the Arrange panel changes this setting too."
+        },
+        "codecloud.historyLimit": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "maximum": 400,
+          "description": "Most commits the cloud's timeline offers."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "clojure -M:build release",
+    "test": "clojure -M:build test",
+    "harness": "clojure -M:build harness",
+    "watch": "clojure -M:build watch",
+    "vscode:prepublish": "clojure -M:build release",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "4.0.0",
+    "esbuild": "0.28.2",
+    "three": "0.186.1",
+    "web-tree-sitter": "0.27.1"
+  }
+}

@@ -1,0 +1,12 @@
+@import "base.css";
+@import url("theme.css");
+
+.chart {
+  border: 1px solid #ccc;
+  margin: 0 auto;
+}
+
+.chart:hover {
+  border-color: #333;
+  cursor: pointer;
+}

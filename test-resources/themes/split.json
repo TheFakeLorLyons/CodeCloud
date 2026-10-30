@@ -1,0 +1,5 @@
+{
+	"name": "Split Test",
+	"colors": { "editor.background": "#fdf6e3" },
+	"tokenColors": "./split-tokens.json"
+}

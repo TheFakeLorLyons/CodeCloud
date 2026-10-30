@@ -1,0 +1,15 @@
+// A theme over the base one, written with the comments and trailing
+// commas theme files allow.
+{
+	"name": "Night Test",
+	"include": "./base.json",
+	"colors": {
+		"editor.background": "#011627", // darker than the base
+	},
+	"tokenColors": [
+		{
+			"scope": "keyword",
+			"settings": { "foreground": "#c792ea" },
+		},
+	],
+}
