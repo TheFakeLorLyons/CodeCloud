@@ -107,10 +107,9 @@
       (is (empty? (facts/problems file-facts)) path))
     (let [built (polyglot-snapshot)]
       (is (= pairs (into {}
-                         (keep (fn [{:keys [path unit-id language]}]
-                                 (when (and (contains? #{:c :cpp} language) (not= path unit-id)) [path unit-id])))
-                         (languages/assign-units (vals facts-by-path)))))
-      (is (= (frequencies (vals (apply dissoc expected-languages (keys pairs)))) (get-in built [:totals :languages])))
+                         (keep (fn [{:keys [path companion]}] (when companion [path companion])))
+                         (languages/with-companions (vals facts-by-path)))))
+      (is (= (frequencies (vals expected-languages)) (get-in built [:totals :languages])))
       (is (= (count facts-by-path) (get-in built [:totals :files])))
       (is (= :module (get-in built [:namespaces "web/index.html" :kind])))
       (is (= :namespace (get-in built [:namespaces "app.core" :kind])))

@@ -162,13 +162,14 @@
 
 (defn first-framing!
   "Frames the cloud once its first snapshot has a layout, unless an
-  arrival from the editor or a restored camera says where to look."
+  arrival from the editor, a restored camera, or the viewer's own moves
+  have already said where to look."
   [app]
   (let [frame @(:frame app)]
     (when (and (not (:framed? frame)) (placement/ready? app) (seq (:visuals frame)) (seq (placement/targets app)))
       (placement/presettle! app)
       (swap! (:frame app) assoc :framed? true)
-      (when-not (or (:arrival frame) (:restored-view? frame))
+      (when-not (or (:arrival frame) (:restored-view? frame) (:user-moved? frame))
         (let [center (placement/center app)
               start-farther 1.6]
           (navigation/jump-to! (:controller app) center

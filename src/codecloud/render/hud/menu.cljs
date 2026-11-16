@@ -1,6 +1,8 @@
 (ns codecloud.render.hud.menu
-  "The right-click menu for a page, a folder's cloud, or the sky."
+  "The right-click menu for a page, a folder's cloud, or the sky, and the
+  menu of definitions a name could mean."
   (:require [codecloud.model.selection :as selection]
+            [codecloud.model.source :as source]
             [codecloud.presentation.page :as page]
             [codecloud.presentation.scene :as scene]
             [codecloud.presentation.visibility :as visibility]
@@ -34,13 +36,19 @@
             true (conj ["Arrange" [:toggle-arrange-panel]]
                        ["Views" [:toggle-views-panel]]))})
 
+(defn- definition-items [{definition-name :name :keys [choices]}]
+  {:heading {:prefix "" :leaf definition-name}
+   :items (for [{choice-name :name :keys [path line] :as location} choices]
+            [(str choice-name " in " (source/file-name path) ", line " line) [:show-definition location]])})
+
 (defn- menu-items
-  "{:heading :items} of the menu for what was right-clicked, each item a
-  [label event] pair."
-  [{:keys [kind id path]} state]
+  "{:heading :items} of the menu for what was right-clicked or which
+  definition a name means, each item a [label event] pair."
+  [{:keys [kind id path] :as menu} state]
   (case kind
     :page (page-items state id)
     :folder (folder-items state path)
+    :definitions (definition-items menu)
     (sky-items state)))
 
 (defn- place-menu!

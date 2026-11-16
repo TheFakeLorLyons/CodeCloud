@@ -47,6 +47,10 @@
                                                           :aria-label "Arrange"
                                                           :on-click #(dispatch [:toggle-arrange-panel])}
                       icons/arrange]
+                     [:button.icon-button.repl-button {:title "REPL (R)"
+                                                       :aria-label "REPL"
+                                                       :on-click #(dispatch [:toggle-repl])}
+                      icons/repl]
                      [:button.icon-button.display-button {:on-click #(dispatch [:toggle-display-mode])}]
                      [:button.icon-button.sky-button {:on-click #(dispatch [:cycle-sky-mode])}]
                      [:button.icon-button {:title "Show the whole cloud (Home)" :aria-label "Show the whole cloud"
@@ -57,7 +61,7 @@
                                                          :on-click #(dispatch [:toggle-legend])}
                       icons/legend]])
              :shown (atom nil)})
-   :update (fn [{:keys [root shown]} {:keys [sky-mode display-mode legend-open? views-open? view-filter arrange-open?]
+   :update (fn [{:keys [root shown]} {:keys [sky-mode display-mode legend-open? views-open? view-filter arrange-open? repl]
                                       :as state}]
              (when (not= [sky-mode display-mode] @shown)
                (reset! shown [sky-mode display-mode])
@@ -66,6 +70,7 @@
                  (show-button! (dom/find-in root ".sky-button") sky-button (str (:label sky-button) ". Click to change."))
                  (show-button! (dom/find-in root ".display-button") display-button (:label display-button))))
              (dom/toggle-class! (dom/find-in root ".legend-button") "is-active" legend-open?)
+             (dom/toggle-class! (dom/find-in root ".repl-button") "is-active" (:open? repl))
              (dom/toggle-class! (dom/find-in root ".views-button") "is-active"
                                 (or views-open? (visibility/filtering? view-filter)))
              (dom/toggle-class! (dom/find-in root ".arrange-button") "is-active"

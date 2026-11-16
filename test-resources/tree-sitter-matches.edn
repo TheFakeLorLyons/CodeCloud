@@ -140,6 +140,35 @@
    {:value {:type "preproc_def", :line 4, :column 1, :end-line 5, :end-column 1}, :value.name {:type "identifier", :line 4, :column 9, :end-line 4, :end-column 21, :text "FILTER_ORDER"}}
    {:macro {:type "preproc_function_def", :line 5, :column 1, :end-line 6, :end-column 1}, :macro.name {:type "identifier", :line 5, :column 9, :end-line 5, :end-column 14, :text "CLAMP"}}
    {:function.name {:type "identifier", :line 8, :column 8, :end-line 8, :end-column 21, :text "filter_sample"}}]}
+ "test-resources/polyglot/native/modules/geometry.cpp"
+ {:cpp
+  [{:form {:type "namespace_definition", :line 3, :column 1, :end-line 9, :end-column 2}}
+   {:form {:type "function_definition", :line 5, :column 1, :end-line 7, :end-column 2}}
+   {:function.name {:type "identifier", :line 5, :column 8, :end-line 5, :end-column 16, :text "distance"}}
+   {:function {:type "function_definition", :line 5, :column 1, :end-line 7, :end-column 2}, :function.body {:type "compound_statement", :line 5, :column 37, :end-line 7, :end-column 2}}
+   {:form {:type "comment", :line 9, :column 4, :end-line 9, :end-column 25}}]}
+ "test-resources/polyglot/native/modules/geometry.cppm"
+ {:cpp
+  [{:form {:type "preproc_include", :line 2, :column 1, :end-line 3, :end-column 1}}
+   {:form {:type "namespace_definition", :line 9, :column 8, :end-line 17, :end-column 2}}
+   {:form {:type "function_definition", :line 11, :column 1, :end-line 13, :end-column 2}}
+   {:function.name {:type "identifier", :line 11, :column 8, :end-line 11, :end-column 18, :text "hypotenuse"}}
+   {:function {:type "function_definition", :line 11, :column 1, :end-line 13, :end-column 2}, :function.body {:type "compound_statement", :line 11, :column 39, :end-line 13, :end-column 2}}
+   {:form {:type "declaration", :line 15, :column 1, :end-line 15, :end-column 37}}
+   {:function.name {:type "identifier", :line 15, :column 8, :end-line 15, :end-column 16, :text "distance"}}
+   {:form {:type "comment", :line 17, :column 4, :end-line 17, :end-column 25}}]}
+ "test-resources/polyglot/native/modules/measure.cpp"
+ {:cpp
+  [{:form {:type "function_definition", :line 4, :column 1, :end-line 8, :end-column 2}}
+   {:function.name {:type "identifier", :line 4, :column 5, :end-line 4, :end-column 9, :text "main"}}
+   {:function {:type "function_definition", :line 4, :column 1, :end-line 8, :end-column 2}, :function.body {:type "compound_statement", :line 4, :column 12, :end-line 8, :end-column 2}}]}
+ "test-resources/polyglot/native/modules/vectors.cppm"
+ {:cpp
+  [{:form {:type "struct_specifier", :line 3, :column 8, :end-line 6, :end-column 2}}
+   {:type {:type "struct_specifier", :line 3, :column 8, :end-line 6, :end-column 2}, :type.name {:type "type_identifier", :line 3, :column 15, :end-line 3, :end-column 21, :text "Vector"}, :type.body {:type "field_declaration_list", :line 3, :column 22, :end-line 6, :end-column 2}}
+   {:form {:type "function_definition", :line 9, :column 3, :end-line 9, :end-column 82}}
+   {:function.name {:type "identifier", :line 9, :column 10, :end-line 9, :end-column 16, :text "scaled"}}
+   {:function {:type "function_definition", :line 9, :column 3, :end-line 9, :end-column 82}, :function.body {:type "compound_statement", :line 9, :column 42, :end-line 9, :end-column 82}}]}
  "test-resources/polyglot/native/src/filter.c"
  {:c
   [{:form {:type "preproc_include", :line 1, :column 1, :end-line 2, :end-column 1}}

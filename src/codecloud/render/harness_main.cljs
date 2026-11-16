@@ -1,13 +1,21 @@
 (ns codecloud.render.harness-main
   "The browser harness, standing in for VS Code. It loads a data file from
-  `node dist/cli.js bundle` and answers the view's messages. The README
-  lists its query parameters."
+  `node dist/cli.js bundle` and answers the view's messages. Query
+  parameters set what the extension would: data names the file in
+  dev/data, theme, sky, display, arrange, headers, color, totals, spread,
+  and editor-colors set the first settings, arrive with arrive-after
+  starts at path:line as zooming out of a file does, visitor sends a bird
+  or airplane across, and repl set to missing acts out a project without
+  an nREPL server. Scripts drive it through window.codecloudDispatch, and
+  read it through codecloudScreenOf, codecloudPointOf, and
+  codecloudStateAt."
   (:require [cljs.reader :as reader]
             [clojure.string :as string]
             [codecloud.presentation.code-colors :as code-colors]
             [codecloud.presentation.ui-state :as ui-state]
             [codecloud.render.app :as app]
             [codecloud.render.dom :as dom]
+            [codecloud.render.editing :as editing]
             [codecloud.render.pages :as pages]
             [codecloud.render.sky :as sky]))
 
@@ -75,10 +83,12 @@
    :display-mode (keyword (or (query-parameter "display") "code"))
    :view-filter (remembered :view-filter)
    :arrangement (or (some-> (query-parameter "arrange") keyword) (remembered :arrangement))
+   :header-mode (or (some-> (query-parameter "headers") keyword) (remembered :header-mode))
    :color-layers (or (layers-parameter) (remembered :color-layers))
    :color-overrides (remembered :color-overrides)
    :totals-open? (or (= "open" (query-parameter "totals")) (remembered :totals-open?))
    :tint-clouds? (remembered :tint-clouds?)
+   :inspector-minimized? (remembered :inspector-minimized?)
    :spread (or (some-> (query-parameter "spread") js/parseFloat) (remembered :spread))
    :cloud-name (:root-name bundle)
    :editor-font {:family nil :size 14 :line-height 0}})
@@ -158,6 +168,140 @@
   (try (.setItem js/localStorage (str "codecloud:" (name preference)) (pr-str value))
        (catch :default _error nil)))
 
+;; A REPL stand-in. It evaluates a small part of Clojure in the browser,
+;; enough to show results and errors the way an nREPL server sends them.
+;; The repl parameter set to missing makes it a project without a server.
+
+(defonce ^:private repl-namespace (atom "user"))
+
+(defonce ^:private repl-vars (atom {}))
+
+(defonce ^:private printed-output (atom ""))
+
+(deftype ^:private HarnessVar [qualified-name]
+  IPrintWithWriter
+  (-pr-writer [_ writer _options] (-write writer (str "#'" qualified-name))))
+
+(defn- qualified-name [var-symbol]
+  (if (namespace var-symbol) (str var-symbol) (str @repl-namespace "/" var-symbol)))
+
+(defn- printed-line [& values]
+  (swap! printed-output str (string/join " " (map #(if (nil? %) "nil" (str %)) values)) "\n")
+  nil)
+
+(def ^:private harness-core
+  {'+ + '- - '* * 'inc inc 'dec dec 'str str 'range range 'map map 'mapv mapv 'filter filter 'reduce reduce
+   'count count 'first first 'rest rest 'last last 'conj conj 'assoc assoc 'update update 'get get 'merge merge
+   'vector vector 'list list 'vec vec 'set set 'keys keys 'vals vals 'keyword keyword 'name name 'apply apply
+   '= = '< < '> > '<= <= '>= >= 'even? even? 'odd? odd? 'take take 'drop drop 'reverse reverse 'sort sort
+   'into into 'max max 'min min 'frequencies frequencies 'zipmap zipmap 'identity identity
+   'println printed-line
+   '/ (fn [numerator & divisors]
+        (if (some zero? divisors) (throw (ex-info "Divide by zero" {})) (apply / numerator divisors)))})
+
+(declare harness-eval)
+
+(defn- harness-fn [locals parameters body]
+  (fn [& values]
+    (let [scope (merge locals (zipmap parameters values))]
+      (last (map #(harness-eval scope %) body)))))
+
+(defn- harness-eval [locals form]
+  (cond
+    (symbol? form) (cond
+                     (contains? locals form) (get locals form)
+                     (contains? @repl-vars (qualified-name form)) (get @repl-vars (qualified-name form))
+                     (contains? harness-core form) (get harness-core form)
+                     :else (throw (ex-info (str "Unable to resolve symbol: " form " in this context") {})))
+    (vector? form) (mapv #(harness-eval locals %) form)
+    (map? form) (into {} (map (fn [[entry-key entry-value]] [(harness-eval locals entry-key) (harness-eval locals entry-value)])) form)
+    (set? form) (into #{} (map #(harness-eval locals %)) form)
+    (and (seq? form) (seq form))
+    (let [[head & arguments] form]
+      (case head
+        quote (first arguments)
+        ns (do (reset! repl-namespace (str (first arguments))) nil)
+        in-ns (do (reset! repl-namespace (str (harness-eval locals (first arguments)))) nil)
+        comment nil
+        def (let [[var-symbol value] arguments]
+              (swap! repl-vars assoc (qualified-name var-symbol) (harness-eval locals value))
+              (HarnessVar. (qualified-name var-symbol)))
+        defn (let [[fn-symbol & more] arguments
+                   [parameters & body] (if (string? (first more)) (rest more) more)]
+               (swap! repl-vars assoc (qualified-name fn-symbol) (harness-fn locals parameters body))
+               (HarnessVar. (qualified-name fn-symbol)))
+        fn (harness-fn locals (first arguments) (rest arguments))
+        let (let [[bindings & body] arguments
+                  scope (reduce (fn [scope [bound value]] (assoc scope bound (harness-eval scope value)))
+                                locals (partition 2 bindings))]
+              (last (map #(harness-eval scope %) body)))
+        if (let [[test then otherwise] arguments]
+             (if (harness-eval locals test) (harness-eval locals then) (harness-eval locals otherwise)))
+        do (last (map #(harness-eval locals %) arguments))
+        (let [function (harness-eval locals head)]
+          (when-not (ifn? function)
+            (throw (ex-info (str (pr-str function) " cannot be called") {})))
+          (apply function (map #(harness-eval locals %) arguments)))))
+    :else form))
+
+(defn- harness-replies
+  "The replies an nREPL server would send evaluating `code` for request
+  `id` in namespace `ns`: printed output and a value for each form, or an
+  error stopping at the form that failed, then done."
+  [id code ns]
+  (when ns (reset! repl-namespace ns))
+  (let [shown-items 100
+        forms (try (reader/read-string (str "[" code "\n]"))
+                   (catch :default error error))]
+    (conj (if (instance? js/Error forms)
+            [{:id id :err (str "Syntax error reading source at (REPL:1).\n" (ex-message forms) "\n")}
+             {:id id :ex "class clojure.lang.ExceptionInfo" :status ["eval-error"]}]
+            (loop [remaining forms
+                   replies []]
+              (if-let [form (first remaining)]
+                (let [_ (reset! printed-output "")
+                      outcome (try {:value (harness-eval {} form)} (catch :default error {:error error}))
+                      printed (when (seq @printed-output) [{:id id :out @printed-output}])]
+                  (if-let [error (:error outcome)]
+                    (into replies (concat printed
+                                          [{:id id :err (str "Execution error at " @repl-namespace "/eval (REPL:1).\n"
+                                                             (ex-message error) "\n")}
+                                           {:id id :ex "class clojure.lang.ExceptionInfo" :status ["eval-error"]}]))
+                    (recur (rest remaining)
+                           (into replies (concat printed
+                                                 [{:id id :ns @repl-namespace
+                                                   :value (binding [*print-length* shown-items] (pr-str (:value outcome)))}])))))
+                replies)))
+          {:id id :status ["done"]})))
+
+(defn- deliver-replies!
+  "Delivers replies a little apart, as a server's arrive."
+  [deliver! replies]
+  (doseq [[index reply] (map-indexed vector replies)]
+    (later! deliver! (+ 80 (* 30 index)) (assoc reply :type :host/repl-output))))
+
+(defmethod answer! :view/repl-connect [_bundle {:keys [port]} deliver!]
+  (let [shown-port (or port 7888)]
+    (if (and (nil? port) (= "missing" (query-parameter "repl")))
+      (later! deliver! 120 {:type :host/repl-status :status :failed
+                            :message "No nREPL port file in this folder or a folder above it. Start an nREPL server there, or type its port and press Enter."})
+      (do (later! deliver! 100 {:type :host/repl-status :status :connecting :port shown-port
+                                :message (str "Connecting to port " shown-port "…")})
+          (later! deliver! 450 {:type :host/repl-status :status :connected :port shown-port
+                                :message (str "Harness REPL on port " shown-port)})))))
+
+(defmethod answer! :view/repl-disconnect [_bundle _message deliver!]
+  (later! deliver! 60 {:type :host/repl-status :status :disconnected :message "Disconnected."}))
+
+(defmethod answer! :view/repl-eval [_bundle {:keys [id code ns]} deliver!]
+  (deliver-replies! deliver! (harness-replies id code ns)))
+
+(defmethod answer! :view/repl-load-file [_bundle {:keys [id code]} deliver!]
+  (let [replies (harness-replies id code nil)
+        answered (butlast replies)]
+    ;; Loading a file answers with the value of its last form alone.
+    (deliver-replies! deliver! (concat (remove :value answered) (take-last 1 (filter :value answered)) [(last replies)]))))
+
 (defn- harness-transport []
   (let [handlers (atom [])
         deliver! (fn [reply] (doseq [handler @handlers] (handler reply)))
@@ -173,8 +317,15 @@
     (set! (.-codecloudDispatch js/window) (fn [event-text] ((:dispatch! started) (reader/read-string event-text))))
     (set! (.-codecloudScreenOf js/window)
           (fn [namespace-id]
-            (when-let [{:keys [screen-x screen-y]} (pages/page-of (:page-layer started) namespace-id)]
-              #js [screen-x screen-y])))
+            (when-let [{:keys [screen-x screen-y half-width-pixels half-height-pixels]}
+                       (pages/page-of (:page-layer started) namespace-id)]
+              #js [screen-x screen-y half-width-pixels half-height-pixels])))
+    (set! (.-codecloudPointOf js/window)
+          (fn [namespace-id path line visual-column]
+            (when-let [page-object (pages/page-of (:page-layer started) namespace-id)]
+              (some-> (editing/line-screen-point page-object path line visual-column) clj->js))))
+    (set! (.-codecloudStateAt js/window)
+          (fn [path-text] (pr-str (get-in @(:state started) (reader/read-string path-text)))))
     (set! (.-codecloudTurn js/window)
           (fn [azimuth polar]
             (let [^js spherical (:spherical (:controller started))]

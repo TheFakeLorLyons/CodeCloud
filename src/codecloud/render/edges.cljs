@@ -2,7 +2,8 @@
   "Dependency edges as ribbons of constant screen width on shallow arcs,
   one mesh bent per edge by the vertex shader. Each fades from its page's
   color to its target's as light flows toward the target. Cycle edges are
-  red, import loop edges amber, and mutual requires arc apart."
+  red, import loop edges amber, edges into a header or module interface
+  dashed, and mutual requires arc apart."
   (:require ["three" :as three]
             [codecloud.presentation.palette :as palette]
             [codecloud.presentation.scene :as scene]
@@ -22,7 +23,8 @@
    "startColor" 4
    "endColor" 3
    "edgeWidth" 1
-   "flow" 1})
+   "flow" 1
+   "dashed" 1})
 
 (defn- edge-material []
   (three/ShaderMaterial.
@@ -128,13 +130,14 @@
           end-color-array (array-of "endColor")
           width-array (array-of "edgeWidth")
           flow-array (array-of "flow")
+          dashed-array (array-of "dashed")
           ^js uniforms (.-uniforms ^js material)
           ^js world (.-matrixWorld camera)
           cycle-color (palette/blended-rgb :cycle ink)
           warning-color (palette/blended-rgb :cycle-warning ink)
           plain-color (palette/blended-rgb :edge ink)
           missing-end {:position [0 0 0] :radius 0 :presence 0 :color plain-color}]
-      (doseq [[edge-index {:keys [from to cyclic? cycle-warning?] :as edge}] (map-indexed vector @edges)]
+      (doseq [[edge-index {:keys [from to cyclic? cycle-warning? into-declaration?] :as edge}] (map-indexed vector @edges)]
         (let [from-end (ends-of from)
               to-end (ends-of to)
               {:keys [alpha width flow]} (edge-look edge)
@@ -149,7 +152,8 @@
           (write! start-color-array edge-index [start-red start-green start-blue (* alpha presence)])
           (write! end-color-array edge-index (or loop-color end-color plain-color))
           (aset width-array edge-index (* width pixel-ratio))
-          (aset flow-array edge-index flow)))
+          (aset flow-array edge-index flow)
+          (aset dashed-array edge-index (if into-declaration? 1.0 0.0))))
       (doseq [attribute-name (keys per-edge-attributes)]
         (set! (.-needsUpdate (.getAttribute geometry attribute-name)) true))
       (.set (.-value (.-viewport uniforms)) (* viewport-width pixel-ratio) (* viewport-height pixel-ratio))

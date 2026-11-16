@@ -4,7 +4,8 @@
   (:require [codecloud.model.source :as source]
             [codecloud.presentation.scene :as scene]
             [codecloud.render.dom :as dom]
-            [codecloud.render.hud.words :as words]))
+            [codecloud.render.hud.words :as words]
+            [codecloud.render.typing :as typing]))
 
 (def ^:private ring-size
   "Width and height of the dive ring in pixels."
@@ -53,7 +54,8 @@
     :code (list [:strong (str (source/file-name (:path origin)) ", line " (:line origin))]
                 [:span.tooltip-hint (if editable?
                                       "Click to edit here, or scroll in to open in the editor"
-                                      "Scroll in to open in the editor")])
+                                      "Scroll in to open in the editor")]
+                [:span.tooltip-hint (str (if (typing/mac?) "Cmd" "Ctrl") "-click a name to go to its definition")])
     :folder (list [:strong (words/name-heading folder)]
                   [:span (let [[singular plural] (or unit-words ["namespace" "namespaces"])]
                            (words/counted (count (:member-ids folder)) singular plural))]

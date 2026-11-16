@@ -429,7 +429,7 @@
                                      " explicit export final friend mutable namespace new noexcept operator"
                                      " override private protected public reinterpret_cast requires"
                                      " static_assert static_cast template thread_local throw try typeid"
-                                     " typename using virtual and or not xor"))
+                                     " typename using virtual and or not xor import module"))
             :constants (word-set "nullptr NULL true false this")
             :defining (word-set "struct enum union class namespace concept")
             :types (word-set (str c-types " wchar_t char8_t char16_t char32_t auto"))}})

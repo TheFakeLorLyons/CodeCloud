@@ -2,7 +2,7 @@
   "name": "codecloud",
   "displayName": "CodeCloud",
   "description": "See a codebase as pages of real code floating among folder clouds, colored by folder or language, and zoom between the cloud and the editor.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "lorelailyons",
   "author": "Lorelai Lyons",
   "license": "MIT",
@@ -132,7 +132,7 @@
       "editor/title": [
         {
           "command": "codecloud.enter",
-          "when": "resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|cc|cjs|clj|cljc|cljd|cljr|cljs|cpp|cs|css|cts|cxx|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i",
+          "when": "resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|c\\+\\+m|cc|ccm|cjs|clj|cljc|cljd|cljr|cljs|cpp|cppm|cs|css|cts|cxx|cxxm|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|ixx|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mpp|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i",
           "group": "navigation@90"
         },
         {
@@ -182,7 +182,7 @@
         "key": "ctrl+alt+-",
         "mac": "cmd+alt+-",
         "linux": "ctrl+shift+alt+-",
-        "when": "editorTextFocus && resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|cc|cjs|cld|clj|cljc|cljd|cljr|cljs|cpp|cs|css|cts|cxx|edn|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i"
+        "when": "editorTextFocus && resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|c\\+\\+m|cc|ccm|cjs|cld|clj|cljc|cljd|cljr|cljs|cpp|cppm|cs|css|cts|cxx|cxxm|edn|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|ixx|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mpp|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i"
       },
       {
         "command": "codecloud.zoomIn",
@@ -195,13 +195,13 @@
         "command": "codecloud.zoomOut",
         "key": "ctrl+-",
         "mac": "cmd+-",
-        "when": "editorTextFocus && config.codecloud.useStandardZoomKeys && codecloud.inCloud && resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|cc|cjs|cld|clj|cljc|cljd|cljr|cljs|cpp|cs|css|cts|cxx|edn|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i"
+        "when": "editorTextFocus && config.codecloud.useStandardZoomKeys && codecloud.inCloud && resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|c\\+\\+m|cc|ccm|cjs|cld|clj|cljc|cljd|cljr|cljs|cpp|cppm|cs|css|cts|cxx|cxxm|edn|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|ixx|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mpp|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i"
       },
       {
         "command": "codecloud.zoomOut",
         "key": "ctrl+numpad_subtract",
         "mac": "cmd+numpad_subtract",
-        "when": "editorTextFocus && config.codecloud.useStandardZoomKeys && codecloud.inCloud && resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|cc|cjs|cld|clj|cljc|cljd|cljr|cljs|cpp|cs|css|cts|cxx|edn|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i"
+        "when": "editorTextFocus && config.codecloud.useStandardZoomKeys && codecloud.inCloud && resourceExtname =~ /^\\.(bash|bb|c|c\\+\\+|c\\+\\+m|cc|ccm|cjs|cld|clj|cljc|cljd|cljr|cljs|cpp|cppm|cs|css|cts|cxx|cxxm|edn|gemspec|go|h|h\\+\\+|hh|hpp|htm|html|hxx|inl|ipp|ixx|java|jl|js|jsx|ksh|kt|kts|less|lua|mjs|mpp|mts|php|py|pyi|pyw|r|rake|rb|rs|sass|scss|sh|tpp|ts|tsx|xhtml|zsh)$/i"
       },
       {
         "command": "codecloud.zoomIn",

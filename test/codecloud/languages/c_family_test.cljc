@@ -1,5 +1,6 @@
 (ns codecloud.languages.c-family-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as string]
+            [clojure.test :refer [deftest is testing]]
             [codecloud.fixtures :as fixtures]
             [codecloud.languages :as languages]
             [codecloud.languages.c-family :as c-family]
@@ -58,27 +59,81 @@
         (is (empty? (:definitions plain-facts)))
         (is (= ["vector" "eeg/filter.hpp"] (mapv :specifier (:imports plain-facts))))))))
 
-(defn- units-of
-  "Path to unit for C++ files at `paths`, once paired."
+(defn- companions-of
+  "Path to companion for the C++ files at `paths` that pair."
   [paths]
   (into {}
-        (map (juxt :path :unit-id))
-        (c-family/paired-units (map (fn [path] {:path path :unit-id path :language :cpp}) paths))))
+        (keep (fn [{:keys [path companion]}] (when companion [path companion])))
+        (c-family/with-companions (map (fn [path] {:path path :language :cpp}) paths))))
 
 (deftest pairs-headers-with-their-sources
   (testing "in the same folder"
-    (is (= {"eeg/Board.hpp" "eeg/Board.cpp" "eeg/Board.cpp" "eeg/Board.cpp"}
-           (units-of ["eeg/Board.hpp" "eeg/Board.cpp"]))))
+    (is (= {"eeg/Board.hpp" "eeg/Board.cpp"} (companions-of ["eeg/Board.hpp" "eeg/Board.cpp"]))))
   (testing "across folders, when one source and one header are left with the stem"
-    (is (= "src/filter.c" (get (units-of ["include/filter.h" "src/filter.c"]) "include/filter.h"))))
+    (is (= {"include/filter.h" "src/filter.c"} (companions-of ["include/filter.h" "src/filter.c"]))))
   (testing "never when two sources could own the header"
-    (is (= "include/util.h" (get (units-of ["include/util.h" "a/util.c" "b/util.c"]) "include/util.h"))))
+    (is (= {} (companions-of ["include/util.h" "a/util.c" "b/util.c"]))))
   (testing "a header paired beside its source leaves a lone header elsewhere alone"
-    (is (= {"src/a.c" "src/a.c" "src/a.h" "src/a.c" "include/a.h" "include/a.h"}
-           (units-of ["src/a.c" "src/a.h" "include/a.h"]))))
+    (is (= {"src/a.h" "src/a.c"} (companions-of ["src/a.c" "src/a.h" "include/a.h"]))))
   (testing "an inline file follows the header beside it"
-    (is (= "lib/ring.hpp" (get (units-of ["lib/ring.hpp" "lib/ring.tpp"]) "lib/ring.tpp")))
-    (is (= "src/x.cpp" (get (units-of ["include/x.h" "include/x.inl" "src/x.cpp"]) "include/x.inl")))))
+    (is (= "lib/ring.hpp" (get (companions-of ["lib/ring.hpp" "lib/ring.tpp"]) "lib/ring.tpp")))
+    (is (= "src/x.cpp" (get (companions-of ["include/x.h" "include/x.inl" "src/x.cpp"]) "include/x.inl")))))
+
+(def ^:private interface-text
+  (str "module;\n#include <cmath>\nexport module geometry.shapes;\n"
+       "export import :circles;\nimport <vector>;\nimport \"legacy.h\";\nimport std;\n"
+       "export double area(double r) { return 3.14 * r * r; }\n"))
+
+(deftest reads-cpp-modules
+  (let [interface (languages/analyze-file "src/shapes.cppm" interface-text {})
+        implementation (languages/analyze-file "src/shapes.cpp" "module geometry.shapes;\nimport :circles;\n" {})]
+    (testing "a module unit names its module, its partition, and whether it exports them"
+      (is (= {:name "geometry.shapes" :partition nil :export? true} (:module interface)))
+      (is (= {:name "geometry.shapes" :partition nil :export? false} (:module implementation)))
+      (is (= {:name "geometry.shapes" :partition "circles" :export? true}
+             (:module (languages/analyze-file "src/circles.cppm" "export module geometry.shapes:circles;\n" {}))))
+      (is (nil? (:module (languages/analyze-file "src/plain.cpp" "int module = 1;\n" {})))))
+    (testing "imports name modules, partitions of the file's own module, and header units"
+      (is (= [["cmath" :c-include] ["geometry.shapes:circles" :cpp-module] ["vector" :c-include]
+              ["legacy.h" :c-include] ["std" :cpp-module]]
+             (mapv (juxt :specifier :resolver) (:imports interface))))
+      (is (= [["geometry.shapes" :cpp-module] ["geometry.shapes:circles" :cpp-module]]
+             (mapv (juxt :specifier :resolver) (:imports implementation)))
+          "an implementation unit imports its module's interface"))
+    (testing "the grammar reads the code around module statements and export keywords in place"
+      (let [grammar-text (c-family/grammar-text :cpp interface-text)]
+        (is (= (count interface-text) (count grammar-text)))
+        (is (= ["" "#include <cmath>" "" "" "" "" "" "       double area(double r) { return 3.14 * r * r; }"]
+               (mapv string/trimr (string/split-lines grammar-text)))))
+      (is (= ["" "" "  int f();" ""]
+             (mapv string/trimr (string/split-lines (c-family/grammar-text :cpp "export module m;\nexport {\n  int f();\n}\n"))))
+          "an export block loses its braces")
+      (is (= "export int f();\n" (c-family/grammar-text :cpp "export int f();\n"))
+          "a file without module statements reads as it is"))))
+
+(deftest pairs-module-interfaces-with-implementations
+  (let [unit (fn [path module-name export? partition]
+               {:path path :language :cpp :module {:name module-name :partition partition :export? export?}})
+        paired (fn [file-facts]
+                 (into {}
+                       (keep (fn [{:keys [path companion]}] (when companion [path companion])))
+                       (c-family/with-companions file-facts)))]
+    (testing "an interface sits beside its only implementation"
+      (is (= {"m/shapes.cppm" "m/shapes_impl.cpp"}
+             (paired [(unit "m/shapes.cppm" "shapes" true nil) (unit "m/shapes_impl.cpp" "shapes" false nil)]))))
+    (testing "among several implementations, beside the one sharing its stem"
+      (is (= {"m/shapes.ixx" "m/shapes.cpp"}
+             (paired [(unit "m/shapes.ixx" "shapes" true nil) (unit "m/shapes.cpp" "shapes" false nil)
+                      (unit "m/draw.cpp" "shapes" false nil)]))))
+    (testing "partitions, and interfaces whose implementations share no stem, stand alone"
+      (is (= {} (paired [(unit "m/shapes.cppm" "shapes" true nil) (unit "m/a.cpp" "shapes" false nil)
+                         (unit "m/b.cpp" "shapes" false nil) (unit "m/circles.cppm" "shapes" true "circles")]))))
+    (testing "roles follow the module declaration"
+      (is (= [:interface :implementation :interface :header]
+             (mapv :file-role (c-family/with-companions [(unit "m/shapes.cppm" "shapes" true nil)
+                                                         (unit "m/shapes.cpp" "shapes" false nil)
+                                                         (unit "m/circles.cppm" "shapes" true "circles")
+                                                         {:path "m/shapes.hpp" :language :cpp}])))))))
 
 (defn- built-snapshot
   "A snapshot of `files`, path to text, with build files read as
@@ -99,10 +154,14 @@
                                "third/config/limits.h" "#define LIMIT 4\n"
                                "lib/CMakeLists.txt" "include_directories(include)\n"}
                               ["third"])]
-    (is (= #{["app/main.c" "lib/util.c" :include] ["app/main.c" "third/config/limits.h" :include]}
+    (is (= #{["app/main.c" "lib/include/util.h" :include] ["app/main.c" "third/config/limits.h" :include]
+             ["lib/util.c" "lib/include/util.h" :include]}
            (set (map (juxt :from :to :kind) (:edges built)))))
     (is (= ["stdio.h"] (get-in built [:namespaces "app/main.c" :external-requires])))
-    (is (= ["lib/include/util.h" "lib/util.c"] (mapv :path (get-in built [:namespaces "lib/util.c" :files])))))
+    (testing "a header is a page of its own, naming the source beside it"
+      (is (= ["lib/util.c"] (mapv :path (get-in built [:namespaces "lib/util.c" :files]))))
+      (is (= {:file-role :header :companion "lib/util.c"}
+             (select-keys (get-in built [:namespaces "lib/include/util.h" :files 0]) [:file-role :companion])))))
   (testing "a header found only by its ending goes to the nearest one, or to none on a tie"
     (let [files {"a/x/common.h" "" "b/x/common.h" ""}
           from-a (built-snapshot (assoc files "a/src/main.c" "#include \"x/common.h\"\n") [])

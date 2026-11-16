@@ -8,14 +8,17 @@
             [codecloud.presentation.editing :as editing]
             [codecloud.render.dom :as dom]))
 
-(defn- mac? []
+(defn mac?
+  "True on macOS, where Cmd takes the place of Ctrl."
+  []
   (string/includes? (or (.-platform js/navigator) "") "Mac"))
 
 (defn- key-edit
   "The event a key press makes while editing, or nil for keys the editor
   leaves to the browser and to VS Code, such as copying and the command
   palette. Word moves take Ctrl, or Alt on macOS, and commands take Ctrl,
-  or Cmd on macOS."
+  or Cmd on macOS. With Enter, a command evaluates the form at the caret,
+  Shift added the whole file, and Alt the top-level form."
   [^js event on-mac?]
   (let [shift? (.-shiftKey event)
         command? (if on-mac? (.-metaKey event) (.-ctrlKey event))
@@ -33,7 +36,11 @@
       "PageDown" [:edit :move :page-down shift?]
       "Backspace" [:edit :delete (if word? :word-left :left)]
       "Delete" [:edit :delete (if word? :word-right :right)]
-      "Enter" (when-not command? [:edit :break-line])
+      "Enter" (cond
+                (and command? shift?) [:evaluate :file]
+                command? [:evaluate :form]
+                (.-altKey event) [:evaluate :top-level]
+                :else [:edit :break-line])
       "Tab" (when-not command? (if shift? [:edit :outdent] [:edit :indent]))
       "Escape" [:end-editing]
       (when (and command? (not (.-altKey event)))

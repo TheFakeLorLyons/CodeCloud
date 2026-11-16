@@ -128,16 +128,20 @@
 
 ;; Pointing into code
 
-(defn editable-code?
-  "True when `hit` lands on code that can be edited where it shows: real
-  text, large enough to point into, in a file the cloud can edit."
-  [app {:keys [kind page node origin]}]
+(defn- readable-code?
+  "True when `hit` lands on code drawn as real text, large enough to point
+  into."
+  [{:keys [kind page]}]
   (let [least-line-pixels 8
         text-showing 0.5]
     (and (= :code kind)
          (>= (:pixels-per-unit page 0) least-line-pixels)
-         (> (:text-share page 0) text-showing)
-         (ui-state/editable? @(:state app) node (:path origin)))))
+         (> (:text-share page 0) text-showing))))
+
+(defn editable-code?
+  "True when `hit` lands on readable code in a file the cloud can edit."
+  [app {:keys [node origin] :as hit}]
+  (and (readable-code? hit) (ui-state/editable? @(:state app) node (:path origin))))
 
 (defn- editing-buffer
   "The buffer being edited, with its :path, or nil."
@@ -145,18 +149,28 @@
   (let [{:keys [editing buffers]} @(:state app)]
     (get buffers (:path editing))))
 
+(defn- buffer-under
+  "The buffer of the file under `hit`, open or read from its source text,
+  or nil while the text has not arrived."
+  [app {:keys [id origin]}]
+  (let [state @(:state app)
+        path (:path origin)]
+    (or (get-in state [:buffers path])
+        (when-let [source-text (some #(when (= path (:path %)) (:text %)) (ui-state/source-of state id))]
+          (assoc (text-editing/buffer source-text) :path path)))))
+
 (defn- begin-editing-at!
   "Puts the caret into the code under `hit`, selecting the word or line
-  there when `select` says so. Returns true when editing began."
-  [app {:keys [id page origin local]} select]
-  (let [state @(:state app)
-        path (:path origin)
-        buffer (or (get-in state [:buffers path])
-                   (when-let [source-text (some #(when (= path (:path %)) (:text %)) (ui-state/source-of state id))]
-                     (assoc (text-editing/buffer source-text) :path path)))
+  there when `select` says so, and stops any flight of the camera, such
+  as the draw back after arriving from a file, so the code stays the size
+  it was clicked at. Returns true when editing began."
+  [app {:keys [id page origin local] :as hit} select]
+  (let [path (:path origin)
+        buffer (buffer-under app hit)
         position (when buffer (editing/text-position page local buffer false))
         {:keys [columns rows]} (get-in page [:visual :geometry])]
     (when position
+      (navigation/cancel-flight! (:controller app))
       (dispatch! app [:begin-editing {:namespace-id id :path path :position position :select select
                                       :columns columns :rows rows}])
       (typing/focus! (:input app))
@@ -203,8 +217,10 @@
 (defn- start-selecting!
   "Places the caret where the pointer went down on the page being edited,
   extending the selection with Shift, or picks a word on the second press
-  and a line on the third; dragging then extends the selection."
+  and a line on the third; dragging then extends the selection. Stops any
+  flight of the camera, as starting to edit does."
   [app {:keys [page local]} ^js event presses]
+  (navigation/cancel-flight! (:controller app))
   (let [buffer (editing-buffer app)
         position (editing/text-position page local buffer true)]
     (case presses
@@ -238,6 +254,26 @@
   [^js event]
   (or (.-ctrlKey event) (.-metaKey event) (.-altKey event)))
 
+(defn- jump-modifier?
+  "True when the pointer goes down with Ctrl or Cmd, whose click on a
+  name goes to its definition, as in the editor."
+  [^js event]
+  (and (or (.-ctrlKey event) (.-metaKey event)) (not (.-altKey event))))
+
+(defn- jump-to-name!
+  "Asks for the definition of the name under `hit`, a point in readable
+  code, returning true when there was a name to ask about."
+  [app {:keys [id node page origin local] :as hit}]
+  (when-let [buffer (buffer-under app hit)]
+    (let [position (editing/text-position page local buffer false)
+          language (some #(when (= (:path origin) (:path %)) (:language %)) (:files node))
+          [[line start] [_ end]] (text-editing/word-range buffer position language)
+          written (subs (nth (:lines buffer) line) start end)
+          {:keys [x y]} (:pointer @(:frame app))]
+      (when (re-find #"[A-Za-z_]" written)
+        (dispatch! app [:jump-to-name {:namespace-id id :name written :x x :y y}])
+        true))))
+
 (defn- plane-point
   "Where the pointer's ray meets the plane through `point` facing the
   camera, or nil."
@@ -251,8 +287,9 @@
 
 (defn- start-carry!
   "Picks up the page under the pointer unless it is lifted, returning
-  whether it did."
-  [app {:keys [id point]}]
+  whether it did. With Ctrl or Cmd over readable code, a click that never
+  moves goes to the definition of the name there instead."
+  [app {:keys [id point] :as hit} ^js event]
   (let [lifted? (contains? (flights/lifted-ids app) id)]
     (when-let [center (and (not lifted?) (:position (pages/page-of (:page-layer app) id)))]
       (let [[point-x point-y point-z] point
@@ -261,18 +298,25 @@
                {:id id
                 :grab [(- point-x center-x) (- point-y center-y) (- point-z center-z)]
                 :plane-anchor point
-                :offset (get-in @(:state app) [:moved-pages id] [0 0 0])})
+                :offset (get-in @(:state app) [:moved-pages id] [0 0 0])
+                :start [(.-clientX event) (.-clientY event)]
+                :jump (when (and (jump-modifier? event) (readable-code? hit)) hit)})
         true))))
 
 (defn- carry-to-pointer!
   "Keeps the carried page's grab point under the pointer, measuring the
-  offset from its layout position."
-  [app]
+  offset from its layout position, and notes once the pointer has moved
+  far enough to make the press a carry."
+  [app ^js event]
   (let [{:keys [carried pointer]} @(:frame app)
-        {:keys [id grab plane-anchor]} carried]
+        {:keys [id grab plane-anchor start]} carried
+        [start-x start-y] start
+        carry-threshold 4]
+    (when (> (js/Math.hypot (- (.-clientX event) start-x) (- (.-clientY event) start-y)) carry-threshold)
+      (swap! (:frame app) assoc-in [:carried :moved?] true))
     (when-let [[meeting-x meeting-y meeting-z] (plane-point app plane-anchor (:ndc-x pointer) (:ndc-y pointer))]
       (when-let [[anchor-x anchor-y anchor-z] (or (:layout-position (pages/page-of (:page-layer app) id))
-                                                  (placement/target-of app id))]
+                                                  (placement/anchor-of app id))]
         (let [[grab-x grab-y grab-z] grab]
           (swap! (:frame app) assoc-in [:carried :offset]
                  [(- meeting-x grab-x anchor-x) (- meeting-y grab-y anchor-y) (- meeting-z grab-z anchor-z)]))))))
@@ -312,7 +356,7 @@
       (and hit (not (carry-modifier? event)) (on-edited-page? app hit))
       (start-selecting! app hit event presses)
 
-      (and hit (carry-modifier? event) (start-carry! app hit))
+      (and hit (carry-modifier? event) (start-carry! app hit event))
       nil
 
       :else
@@ -321,13 +365,14 @@
                                        :start [(.-clientX event) (.-clientY event)]
                                        :last [(.-clientX event) (.-clientY event)]
                                        :last-move (js/performance.now)
-                                       :moved? false}))))
+                                       :moved? false
+                                       :jump (when (and hit (jump-modifier? event) (readable-code? hit)) hit)}))))
 
 (defn- on-pointer-move [app ^js event]
   (update-pointer! app event)
   (cond
     (:selecting @(:frame app)) (extend-selection! app)
-    (:carried @(:frame app)) (carry-to-pointer! app)
+    (:carried @(:frame app)) (carry-to-pointer! app event)
     :else
     (when-let [{:keys [button shift? start] previous :last :as drag} (:drag @(:frame app))]
       (let [[start-x start-y] start
@@ -362,14 +407,19 @@
 
 (defn- on-pointer-up
   "Ends a selection, a drag, or a carry, or clicks. A click on readable
-  code that can be edited puts the caret there at once. Other left clicks
-  wait a moment, so a double-click's first half lifts nothing."
+  code that can be edited puts the caret there at once, and with Ctrl or
+  Cmd goes to the definition of the name there. Other left clicks wait a
+  moment, so a double-click's first half lifts nothing."
   [app ^js _event]
   (cond
     (:selecting @(:frame app)) (swap! (:frame app) dissoc :selecting)
+    (and (get-in @(:frame app) [:carried :jump]) (not (get-in @(:frame app) [:carried :moved?])))
+    (let [hit (get-in @(:frame app) [:carried :jump])]
+      (swap! (:frame app) dissoc :carried)
+      (jump-to-name! app hit))
     (:carried @(:frame app)) (set-down-carried! app)
     :else
-    (when-let [{:keys [moved? last-move button]} (:drag @(:frame app))]
+    (when-let [{:keys [moved? last-move button jump]} (:drag @(:frame app))]
       (swap! (:frame app) assoc :drag nil)
       (let [pause-limit 90]
         (navigation/release-drag! (:controller app) (> (- (js/performance.now) last-move) pause-limit)))
@@ -378,7 +428,8 @@
               hit (pick app ndc-x ndc-y)
               double-click-window 240]
           (case button
-            0 (when-not (and (editable-code? app hit) (begin-editing-at! app hit nil))
+            0 (when-not (or (and jump (jump-to-name! app jump))
+                            (and (editable-code? app hit) (begin-editing-at! app hit nil)))
                 (let [click-id (js/performance.now)]
                   (swap! (:frame app) assoc :pending-click click-id)
                   (js/setTimeout (fn []
@@ -426,6 +477,7 @@
                     " " (dispatch! app [:toggle-playback])
                     ("n" "N") (dispatch! app [:toggle-display-mode])
                     ("a" "A") (dispatch! app [:toggle-arrange-panel])
+                    ("r" "R") (dispatch! app [:toggle-repl])
                     "?" (dispatch! app [:toggle-legend])
                     "[" (dispatch! app [:step-spread -1])
                     "]" (dispatch! app [:step-spread 1])
@@ -441,6 +493,13 @@
   (let [^js canvas (.-domElement ^js (:renderer app))]
     (.addEventListener canvas "wheel" #(on-wheel app %) #js {:passive false})
     (.addEventListener canvas "pointerdown" #(on-pointer-down app %))
+    ;; While a file is edited, a press anywhere on the canvas, whether it
+    ;; places the caret, orbits, or lands off the code, leaves the keyboard
+    ;; with the text area, which the canvas would otherwise take as the
+    ;; press's default.
+    (.addEventListener canvas "mousedown" (fn [^js event]
+                                           (when (:editing @(:state app))
+                                             (.preventDefault event))))
     (.addEventListener canvas "pointermove" #(on-pointer-move app %))
     (.addEventListener canvas "pointerup" #(on-pointer-up app %))
     (.addEventListener canvas "pointercancel" #(swap! (:frame app) dissoc :drag :carried))

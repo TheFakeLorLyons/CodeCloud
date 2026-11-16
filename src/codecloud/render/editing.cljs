@@ -157,7 +157,9 @@
 (defn update-caret!
   "Draws the caret and the selection on the page being edited, the caret
   blinking while the keyboard is in the page and resting steady for a
-  moment after each change. Hides both when nothing is being edited."
+  moment after each change. While the keyboard is elsewhere, the caret
+  rests faint and steady where typing will resume. Hides both when
+  nothing is being edited."
   [layer {:keys [page-object buffer theme-name code-colors focused? since-change viewport]}]
   (if-not (and page-object buffer (> (:text-share page-object) 0.4))
     (hide-all! layer)
@@ -170,8 +172,14 @@
           most-spans 400
           ;; The caret is at least a pixel and a half wide.
           caret-width (max 0.09 (/ 1.5 (max 1 pixels-per-unit)))
-          shown? (and focused? (or (< since-change steady-after-change)
-                                   (< (mod since-change blink-period) (* 0.5 blink-period))))
+          ;; The share of its full strength a caret rests at while the
+          ;; keyboard is elsewhere.
+          resting-share 0.45
+          caret-opacity (cond
+                          (not focused?) (* resting-share opacity)
+                          (or (< since-change steady-after-change)
+                              (< (mod since-change blink-period) (* 0.5 blink-period))) (min 1 (* 1.2 opacity))
+                          :else 0)
           [caret-line caret-column] (:caret buffer)
           caret-visual (editing/visual-column (line-text buffer caret-line) caret-column page/tab-size)
           [caret-x caret-y] (local-line-point visual path caret-line caret-visual)
@@ -187,7 +195,7 @@
       (.set (.-position caret) caret-x caret-y 0.04)
       (.set (.-scale caret) caret-width 0.92 1)
       (set-color! caret (color/hex->rgb (:color (code-colors/style code-colors theme-name :caret)))
-                  (if shown? (min 1 (* 1.2 opacity)) 0))
+                  caret-opacity)
       (doseq [[index [line from to]] (map-indexed vector spans)]
         (let [^js mesh (selection-mesh! layer index)
               [left y] (local-line-point visual path line from)
@@ -199,12 +207,20 @@
       (doseq [^js mesh (drop (count spans) @(:selection layer))]
         (set! (.-visible mesh) false)))))
 
-(defn caret-screen-point
-  "CSS pixel position of the caret's line start on screen, for placing
-  the keyboard's input beside it, or nil."
-  [{:keys [visual screen-x screen-y pixels-per-unit]} buffer]
-  (when (and visual buffer)
-    (let [[line column] (:caret buffer)
-          visual-column (editing/visual-column (line-text buffer line) column page/tab-size)
-          [x y] (local-line-point visual (:path buffer) line visual-column)]
+(defn line-screen-point
+  "CSS pixel position on screen of zero-based screen column `visual` on
+  line `line` of `path`, halfway up the line, or nil when the page does
+  not show that line."
+  [{:keys [visual screen-x screen-y pixels-per-unit]} path line visual-column]
+  (when (and visual (page/origin-panel-line (:files visual) path (inc line)))
+    (let [[x y] (local-line-point visual path line visual-column)]
       [(+ screen-x (* pixels-per-unit x)) (- screen-y (* pixels-per-unit y))])))
+
+(defn caret-screen-point
+  "CSS pixel position of the caret on screen, for placing the keyboard's
+  input beside it, or nil."
+  [page-object buffer]
+  (when buffer
+    (let [[line column] (:caret buffer)]
+      (line-screen-point page-object (:path buffer) line
+                         (editing/visual-column (line-text buffer line) column page/tab-size)))))

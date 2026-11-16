@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.4.1, pre-alpha
+
+### 0.4.1-4
+
+- The inspector minimizes to its header, the page's or folder's name, with a button beside its close button, and a click on the name shows the details again. The choice is remembered.
+- While a file is edited, the caret stays. A press anywhere in the cloud, whether it moves the caret, orbits, or lands on the page's name band, leaves the keyboard with the code, and a click on the lifted page off its code leaves the page lifted. With the keyboard elsewhere, in VS Code's editor or on a panel's button, the caret rests faint and steady where typing resumes, and a click on the code takes the keyboard back.
+- A click into code stops a camera flight in progress, such as the draw back after zooming out of a file, so the code stays the size it was clicked at. The cloud's first framing no longer overrides a view the viewer has already chosen.
+
+### 0.4.1-3
+
+- The REPL pane, opened with `R` or the toolbar's REPL button, holds a REPL's log and a line to type into, about 350 by 225 pixels, in either sky's colors. Its header drags it and its corner resizes it. Opening it connects to the nREPL server whose `.nrepl-port` or `.shadow-cljs/nrepl.port` file sits in the cloud's folder or a folder above it, and a port typed into it, such as `7888`, connects there. Enter evaluates once the input's brackets and strings close, the arrow keys bring back earlier inputs, and Ctrl+C with nothing selected interrupts.
+- While a Clojure file is edited in the cloud, Ctrl+Enter, or Cmd+Enter on macOS, evaluates the selection or the form at the caret, Alt+Enter the top-level form, or inside a `(comment ...)` the form there, and Ctrl+Shift+Enter loads the whole file. Code goes in the namespace its file names, marked with its file and line. Each result shows after the last line of its code, as a value or an error's message, until the file is edited in the cloud.
+- The extension speaks nREPL itself, with no other extension needed, and keeps one connection, holding a session of its own, for each open cloud. Closing the cloud closes the session.
+- A click on the page being edited keeps the keyboard with the code. It used to move the caret and hand the keys to the cloud, so typing after a second click went nowhere.
+
+### 0.4.1-2
+
+- Each page draws one line to each page it depends on. A C or C++ file that calls a function its header declares and its source defines draws its line to the header, and the use still counts toward the source's definition, its importance, and Most used. Lines into a header or a module interface are dashed, with a legend entry.
+- Hidden folds each header, inline file, and module interface that has a partner into that partner: its lines and uses join the partner's, and the partner's measurements count them. A header without a partner, such as a header-only template, holds code found nowhere else and stays.
+- Beside sources sets a header next to its source only within one folder, so the public headers under `include/` keep their own folder's cloud while still folding into their sources and counting toward them.
+- A row keeps its top left corner while one of its pages is edited, so a growing header pushes its source along instead of covering it.
+- Ctrl-click, or Cmd-click on macOS, a name in readable code to fly to its definition: on the page itself, or on the pages it uses, so a C++ call lands on the function's body in its source. When the name could mean several definitions, such as overloads, a menu lists them, and when no page shown defines it, a notice says so. The code tooltip names the key.
+- The inspector lists a C or C++ page's neighbors under Uses and Used by, since they include the files reached through headers.
+
+### 0.4.1-1
+
+- A C or C++ header is a page of its own. It still pairs with its source file, the one beside it or the only source of its name in the cloud, and the arrange panel's new Headers choice sets header pages beside their sources, on their own in their folders, or hidden. The choice is remembered for each cloud.
+- Beside its source, a header and any inline file of its name sit in a row with the source, declarations first and top edges aligned, on the source's folder cloud. Folders and Relations place each row as one page, and ranked walls rank every page alone.
+- A use through a header counts toward the source beside it: calling a function a header declares and its source defines draws a faint line to the source and counts as a use of the source's definition. With headers hidden, these lines join the sources directly. A source's own uses of its header count as none.
+- C++ modules are read. Files ending in `.cppm`, `.ixx`, `.mpp`, `.cxxm`, `.ccm`, and `.c++m` are C++. Imports of modules, partitions, and header units become lines, an implementation unit draws a line to its module's interface, and the interface sits beside its implementation as a header sits beside its source. tree-sitter's C++ grammar predates modules, so CodeCloud reads module statements from the tokens and blanks them and `export` before the grammar reads the file, and definitions inside `export` blocks read as usual. `import` and `module` color as keywords.
+- The view's state changes route through a table of handlers built from a few shared shapes, in place of two multimethods.
+
 ## 0.4.0, pre-alpha
 
 - C and C++ are read in depth. Includes become lines between pages, found beside the including file, in the include folders that `compile_commands.json`, `compile_flags.txt`, `CMakeLists.txt`, Makefiles, and `meson.build` name, in the folders of the cloud file's new `:include-paths`, or at the nearest path ending the same way. System headers count as outside the cloud.

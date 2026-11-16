@@ -28,14 +28,14 @@ Forever free, forever open source, forever opposed to exploitation and oligarchy
 
 | | |
 | --- | --- |
-| Version | 0.4.0, pre-alpha |
+| Version | 0.4.1, pre-alpha |
 | Languages highlighted | 19 |
 | Languages read in depth* | 9 |
 | Arrangements** | 7 |
 | Color layers | 6 built in, plus any the cloud file defines |
 | Skies | 5 |
-| Source | 19,800 lines of Clojure and ClojureScript in 104 namespaces, 50 of them as `.cljc` files |
-| Tests | 126 tests, 32,324 assertions |
+| Source | 22,100 lines of Clojure and ClojureScript in 111 namespaces, 53 of them as `.cljc` files |
+| Tests | 150 tests, 32,691 assertions |
 | Download | 1.6 MB |
 | Network use | None; analysis runs on the local machine |
 
@@ -59,17 +59,20 @@ Forever free, forever open source, forever opposed to exploitation and oligarchy
 | --- | --- |
 | Pages of real code | Each file drawn at the editor's font and size, a minimap from afar |
 | Folder clouds | A folder's pages gathered in a cloud tinted with its color |
-| Dependency lines | From each page to what it requires, imports, includes, loads, or runs, shaded from one end's color to the other's and heavier across languages |
+| Dependency lines | One from each page to each page it requires, imports, includes, loads, or runs, shaded from one end's color to the other's, heavier across languages, and dashed into headers |
 | Cycles and errors | Pulsing red for Clojure dependency cycles, amber for import loops a language allows, bright red for files that fail to parse |
 | Arrangements | Folders, Relations, and ranked walls by **length, functions, uses, dependencies, or complection*** |
+| Headers | C and C++ headers and module interfaces beside their source files in the same folder, on their own, or folded into those files |
+| Go to definition | Ctrl-click, or Cmd-click on macOS, a name in readable code to fly to its definition, with a menu when several match |
 | Color layers | Language, Folder, Dependents, Importance, Complection, and Length, blended on each page, plus custom layers and colors |
 | Complection | A score for each definition from its length, branches, nesting, asynchronous work, state changes, and flagged names |
-| Editing in the cloud | A click on readable code places a caret, and each change reaches VS Code's document unsaved |
+| Editing in the cloud | A click on readable code places a caret that stays through clicks around the cloud, and each change reaches VS Code's document unsaved |
+| REPL | A pane over the sky joined to the project's nREPL server, and evaluation from the page being edited, each result shown after the code it came from |
 | Zoom portal | Ctrl+- from a file into the cloud at the same line, and a scroll into a page opens its file |
 | Editor theme colors | The theme's syntax colors, font styles, and bracket pair colors, fitted to either sky |
 | History | Recent commits, stepped through or played, with pages moving as the code changes |
 | Views and filters | Named views, toggles for each language, folder, and page, and **Save view** |
-| Finding and reading | Search, a names-only mode, an inspector, totals by language, a legend, and context menus |
+| Finding and reading | Search, a names-only mode, an inspector that minimizes to its header, totals by language, a legend, and context menus |
 | Layout by hand | Pages moved anywhere and spacing opened or closed, remembered for each cloud |
 | Sky | Day, twilight, night, the clock, or the editor theme's lead, with birds and airplanes, and a still sky for reduced motion |
 
@@ -87,7 +90,7 @@ Forever free, forever open source, forever opposed to exploitation and oligarchy
 | CSS, SCSS, Sass, Less | Style sheet | `@import`, `@use`, `@forward` | Sass mixins, functions, variables |
 | HTML | Page | Scripts, style sheets, modules, and local links | None |
 | Shell | Script | `source`, `.`, and scripts run by path or interpreter | Functions |
-| C, C++ | Source file, with its header | `#include`, through the include folders that `compile_commands.json`, CMake, Make, Meson, and `:include-paths` name | Functions, methods, operators, types, macros, constants, and tests, read with tree-sitter |
+| C, C++ | File, a header beside its source | `#include`, through the include folders that `compile_commands.json`, CMake, Make, Meson, and `:include-paths` name, and C++ module imports; uses through a header count toward the source | Functions, methods, operators, types, macros, constants, and tests, read with tree-sitter |
 
 Java, Kotlin, C#, Go, Rust, Ruby, PHP, Lua, R, and Julia show as highlighted pages without lines, and the Language layer marks them unclassified.
 
@@ -101,15 +104,33 @@ Java, Kotlin, C#, Go, Rust, Ruby, PHP, Lua, R, and Julia show as highlighted pag
 | Click a page or folder cloud | Bring it closer |
 | Double-click | Fly there |
 | Ctrl-drag or Alt-drag | Move a page |
+| Ctrl-click or Cmd-click a name | Fly to its definition |
 | Click readable code | Edit in place; Esc stops |
+| Ctrl+Enter while editing (Cmd on macOS) | Evaluate the selection, or the form at the caret |
+| Alt+Enter while editing | Evaluate the top-level form, or the form inside a `(comment ...)` |
+| Ctrl+Shift+Enter while editing | Load the whole file into the REPL |
 | Right-click | Actions for the page, folder, or sky |
-| `/`, `N`, `A`, `?` | Search, names only, arrange panel, legend |
+| `/`, `N`, `A`, `R`, `?` | Search, names only, arrange panel, REPL, legend |
 | `[` and `]` | Close the cloud up or open it out |
 | Home | Show the whole cloud |
 | Left and right arrows, Space | Step through history, play it |
 | Ctrl+- and Ctrl+= (Cmd on macOS) | Zoom from a file into its cloud and back |
 
 ![You can edit the source code in cloud mode!](docs/ex/demo.png)
+
+## The REPL
+
+`R` or the toolbar's REPL button opens a pane of about 350 by 225 pixels, which its header drags and its corner resizes. Opening it connects to the nREPL server whose port file, `.nrepl-port` or `.shadow-cljs/nrepl.port`, sits in the cloud's folder or a folder above it, as nREPL itself, Leiningen, nbb, and shadow-cljs write them. Without one, typing a port such as `7888`, or `host:7888`, and pressing Enter connects there.
+
+| In the pane | Effect |
+| --- | --- |
+| Enter | Evaluate what was typed once its brackets and strings close; until then, a new line |
+| Shift+Enter | A new line |
+| Up and down arrows | Earlier and later inputs |
+| Ctrl+C with nothing selected, or the stop button | Interrupt what is running |
+| Esc | Give the keys back to the cloud |
+
+Code from a page evaluates in the namespace its file's `ns` form names, as read from that file at that line, so definitions and stack traces point back to it. Each result shows after the last line of the code it came from, a value as `=> value` and an error as its message, until the file is edited in the cloud; the pane logs everything, output included. A `.cljs` file evaluates in whatever runtime the server holds, so ClojureScript-only code needs a ClojureScript REPL, such as nbb's or shadow-cljs's.
 
 ## Settings
 
@@ -155,10 +176,12 @@ Java, Kotlin, C#, Go, Rust, Ruby, PHP, Lua, R, and Julia show as highlighted pag
 | 0.3.2 | Color layers |
 | 0.3.3 | The views panel, the color chooser, editing in the cloud, the twilight sky, tinted clouds |
 | 0.4.0 | C and C++ through tree-sitter, editor theme colors, faster analysis |
+| 0.4.1 | C and C++ headers as pages of their own, C++ modules, one line per dependency, go to definition, the REPL pane with results shown in place, and a caret that stays put |
 
 | TODOs | State |
 | --- | --- |
 | Java, Kotlin, C#, Go, Rust, Ruby, PHP, Lua, R, Julia | Highlighted only; adapters planned |
+| VS Code's terminals shown in the cloud | Planned |
 | Architecture view of components and interop seams | Planned |
 | Export of what the cloud shows for AI tools | Planned |
 | Role highlighting of state, logic, models, and views | Planned |
@@ -172,6 +195,9 @@ Java, Kotlin, C#, Go, Rust, Ruby, PHP, Lua, R, and Julia show as highlighted pag
 | Control and declaration keywords | Share one color on pages |
 | `#if 0` blocks in C and C++ | Read as live code |
 | Macros that open or close braces | Can misplace where a C or C++ definition ends |
+| Names a C++ module re-exports | Count no uses toward the partition or module that defines them |
+| Go to definition | Matches names, so an overload or a name in another namespace can offer several choices |
+| Interrupting an evaluation | Needs a server that supports it; nbb cannot |
 | History and highlighted-only languages | Read-only |
 
 ## Building from source
@@ -182,7 +208,7 @@ The build calls the ClojureScript compiler directly and bundles with esbuild. It
 npm install
 clojure -M:build release            # dist/extension.js and dist/webview.js
 clojure -M:build test               # tests on Node
-npx vsce package                    # codecloud-0.4.0.vsix
+npx vsce package                    # codecloud-0.4.1.vsix
 clojure -M:build cli harness        # command-line analyzer and browser harness
 node dist/cli.js summary path/to/project
 node dist/cli.js bundle path/to/project --history 20   # then open dev/index.html?data=project
@@ -194,7 +220,7 @@ node dist/cli.js bundle path/to/project --history 20   # then open dev/index.htm
 | `codecloud.model` | Reading, import resolution, the graph, and measurements, all portable `.cljc` |
 | `codecloud.presentation` | The view model as pure functions |
 | `codecloud.render` | three.js drawing, input, and panels |
-| `codecloud.io`, `codecloud.vscode` | Files, git, tree-sitter, and the VS Code host |
+| `codecloud.io`, `codecloud.vscode` | Files, git, tree-sitter, the nREPL client, and the VS Code host |
 | `codecloud.protocol` | EDN messages between view and host |
 
 ## Some more pretty pictures (demonstrating 'arrangements')!!

@@ -9,6 +9,12 @@
              ;; A .h file whose code is C++ reads as C++.
              "native/cpp/ring.h" :cpp
              "native/include/filter.h" :c
+             ;; C++ modules: an interface, a partition, an implementation, and
+             ;; a program importing the module.
+             "native/modules/geometry.cpp" :cpp
+             "native/modules/geometry.cppm" :cpp
+             "native/modules/measure.cpp" :cpp
+             "native/modules/vectors.cppm" :cpp
              "native/src/filter.c" :c
              "scripts/train.py" :python
              "src/app/core.cljs" :clojure
@@ -36,16 +42,27 @@
  ;; CMakeLists.txt names the folder C's headers are included from.
  :unread #{"README.md" "deps.edn"}
  :manifests #{"pyproject.toml" "native/CMakeLists.txt"}
- ;; Headers on their source file's page: beside it, or across folders as
- ;; the only header and source sharing a stem.
+ ;; Headers and the source files they sit beside: in the same folder, or
+ ;; across folders as the only header and source sharing a stem. A
+ ;; module's interface sits beside its only implementation.
  :pairs {"native/cpp/Board.hpp" "native/cpp/Board.cpp"
-         "native/include/filter.h" "native/src/filter.c"}
+         "native/include/filter.h" "native/src/filter.c"
+         "native/modules/geometry.cppm" "native/modules/geometry.cpp"}
  ;; Every edge, as [from to kind].
  :edges #{["app.core" "app.state" :load]
-          ["native/cpp/Board.cpp" "native/cpp/ring.h" :include]
-          ["native/cpp/Board_test.cpp" "native/cpp/Board.cpp" :include]
-          ["native/cpp/main.cpp" "native/cpp/Board.cpp" :include]
-          ["native/cpp/main.cpp" "native/src/filter.c" :include]
+          ["native/cpp/Board.cpp" "native/cpp/Board.hpp" :include]
+          ["native/cpp/Board.hpp" "native/cpp/ring.h" :include]
+          ["native/cpp/Board_test.cpp" "native/cpp/Board.hpp" :include]
+          ["native/cpp/Board_test.cpp" "native/cpp/Board.cpp" :implicit]
+          ["native/cpp/main.cpp" "native/cpp/Board.hpp" :include]
+          ["native/cpp/main.cpp" "native/cpp/Board.cpp" :implicit]
+          ["native/cpp/main.cpp" "native/include/filter.h" :include]
+          ["native/cpp/main.cpp" "native/src/filter.c" :implicit]
+          ["native/src/filter.c" "native/include/filter.h" :include]
+          ["native/modules/geometry.cpp" "native/modules/geometry.cppm" :import]
+          ["native/modules/geometry.cppm" "native/modules/vectors.cppm" :import]
+          ["native/modules/measure.cpp" "native/modules/geometry.cppm" :import]
+          ["native/modules/measure.cpp" "native/modules/geometry.cpp" :implicit]
           ["app.core" "web/js/plot.js" :interop]
           ["bin/run.sh" "bin/deploy" :invoke]
           ["bin/run.sh" "bin/env.sh" :source]
@@ -94,6 +111,10 @@
                "native/cpp/ring.h" [["Ring" :type] ["Ring::push" :function]]
                "native/include/filter.h" [["FILTER_ORDER" :value] ["CLAMP" :macro]]
                "native/src/filter.c" [["clamped" :function] ["filter_sample" :function]]
+               "native/modules/geometry.cppm" [["hypotenuse" :function]]
+               "native/modules/vectors.cppm" [["Vector" :type] ["scaled" :function]]
+               "native/modules/geometry.cpp" [["distance" :function]]
+               "native/modules/measure.cpp" [["main" :function]]
                "scripts/train.py" [["main" :function]]
                "src/eeg/board.py" [["connect" :function] ["read_samples" :function] ["RATE" :value]
                                    ["_connection" :value]]
@@ -114,11 +135,16 @@
             "web/js/app.js" [["start" 3.0 {:asynchronous 4}]]
             "bin/run.sh" [["record" 1.0 {:asynchronous 2}]]}
  ;; Uses of each definition from other pages. A C or C++ page counts the
- ;; names its includers write, Board three times and read twice.
+ ;; names its includers write, Board three times, and a source file counts
+ ;; the names written by the includers of the header beside it, read
+ ;; twice.
  :inbound {"src/eeg/filters.py" {"bandpass" 1 "notch" 1}
-           "native/cpp/Board.cpp" {"Board" 3 "Board::read" 2 "Board::open" 1}
+           "native/cpp/Board.hpp" {"Board" 3 "Board::open" 1}
+           "native/cpp/Board.cpp" {"Board::read" 2}
            "native/cpp/ring.h" {"Ring" 1}
            "native/src/filter.c" {"filter_sample" 1}
+           "native/modules/geometry.cpp" {"distance" 1}
+           "native/modules/vectors.cppm" {"Vector" 2}
            "src/eeg/board.py" {"read_samples" 1 "RATE" 1}
            "src/eeg/stream.py" {"BUFFER_SIZE" 1}
            "web/js/plot.js" {"plot" 1 "WIDTH" 2}
@@ -133,11 +159,13 @@
          "web/css/main.css" [[1 1] [2 2] [4 7] [9 12]]}
  ;; Imports that reach nothing in the cloud.
  :external {"src/eeg/stream.py" ["asyncio"]
-            "native/cpp/Board.cpp" ["string" "thread" "vector"]
+            "native/cpp/Board.hpp" ["string" "thread" "vector"]
             "native/cpp/Board_test.cpp" ["gtest/gtest.h"]
             "native/cpp/main.cpp" ["cstdio"]
             "native/cpp/ring.h" ["cstddef"]
             "native/src/filter.c" ["math.h"]
+            "native/modules/geometry.cppm" ["cmath" "vector"]
+            "native/modules/measure.cpp" ["std"]
             "scripts/train.py" ["sys"]
             "src/eeg/filters.py" ["math" "numpy"]
             "src/eeg/board.py" ["time"]

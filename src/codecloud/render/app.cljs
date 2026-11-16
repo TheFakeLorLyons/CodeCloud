@@ -5,6 +5,7 @@
   (:require ["three" :as three]
             [codecloud.presentation.arrangement :as arrangement]
             [codecloud.presentation.layers :as layers]
+            [codecloud.presentation.pairing :as pairing]
             [codecloud.presentation.palette :as palette]
             [codecloud.presentation.scene :as scene]
             [codecloud.presentation.sky :as sky]
@@ -23,6 +24,7 @@
             [codecloud.render.overlay :as overlay]
             [codecloud.render.pages :as pages]
             [codecloud.render.placement :as placement]
+            [codecloud.render.results :as results]
             [codecloud.render.sky :as sky-layer]
             [codecloud.render.text :as text]
             [codecloud.render.typing :as typing]))
@@ -57,10 +59,11 @@
 
 (defn- sync-view!
   "Brings the scene and overlay in line with a state change, rebuilding
-  page bases only when the shown pages, their arrangement, or the font
-  change. Pages with edited files take their buffers' shape. While a file
-  is edited, a new snapshot of the same pages leaves the layout alone
-  until editing stops, so pages hold still under the caret."
+  page bases only when the shown pages, their arrangement, the header
+  mode, or the font change. Pages with edited files take their buffers'
+  shape. While a file is edited, a new snapshot of the same pages leaves
+  the layout alone until editing stops, so pages hold still under the
+  caret."
   [app before after]
   (let [frame (:frame app)
         shown (:visible-snapshot after)
@@ -68,7 +71,8 @@
         width-changed? (not= character-width (:visuals-character-width @frame))
         shown-changed? (not (identical? (:visible-snapshot before) shown))
         arrangement-changed? (not= (:arrangement before) (:arrangement after))
-        layout-changed? (or shown-changed? width-changed? arrangement-changed? (nil? (:bases @frame)))
+        pairing-changed? (not= (:header-mode before) (:header-mode after))
+        layout-changed? (or shown-changed? width-changed? arrangement-changed? pairing-changed? (nil? (:bases @frame)))
         look-changed? (or layout-changed? (not= (look-inputs before) (look-inputs after)))
         buffers-changed? (or (not (identical? (:buffers before) (:buffers after)))
                              (not= (:editing before) (:editing after)))]
@@ -76,14 +80,16 @@
       (let [previous-visuals (:visuals @frame)
             visible-ids (ui-state/visible-ids after)
             bases (if layout-changed?
-                    (scene/page-bases shown (:arrangement after) visible-ids character-width)
+                    (cond-> (scene/page-bases shown (:arrangement after) visible-ids character-width)
+                      (pairing/pairs? (:arrangement after) (:header-mode after)) pairing/paired)
                     (:bases @frame))
             plain-visuals (if look-changed?
                             (scene/page-visuals shown after bases)
                             (:plain-visuals @frame))
-            visuals (scene/shaped-by-buffers plain-visuals after character-width)
+            visuals (cond-> (scene/shaped-by-buffers plain-visuals after character-width)
+                      (seq (:buffers after)) pairing/reshaped)
             held? (and (:editing after) shown-changed? (not width-changed?) (not arrangement-changed?)
-                       (= visible-ids (:placed-ids @frame)))
+                       (not pairing-changed?) (= visible-ids (:placed-ids @frame)))
             place! (fn [rebuild?]
                      (placement/sync! app {:visuals visuals
                                            :previous-visuals previous-visuals
@@ -100,7 +106,7 @@
                :visuals-character-width character-width)
         (cond
           held? (swap! frame assoc :placement-held? true)
-          layout-changed? (place! (or shown-changed? width-changed?))
+          layout-changed? (place! (or shown-changed? width-changed? pairing-changed?))
           (and (:placement-held? @frame) (not (:editing after))) (place! true))
         (pages/sync-pages! (:page-layer app) visuals)
         (when look-changed?
@@ -382,13 +388,14 @@
 
 (defn- update-overlay!
   "Refreshes what floats over the scene, which is the hovered thing, the
-  labels, the caret, the tooltip, and the dive ring."
+  labels, the caret, evaluation results, the tooltip, and the dive ring."
   [app now theme-key]
   (when (or (navigation/flying? (:controller app)) (placement/spacing-moving? app))
     (swap! (:frame app) assoc-in [:pointer :moved?] true))
   (overlay/refresh-hover! app)
   (labels/update-labels! (:labels app) (overlay/label-candidates app))
   (update-editing! app now theme-key)
+  (results/update-tags! (:results app) (:page-layer app) @(:state app))
   (let [{:keys [editing menu]} @(:state app)
         {:keys [pointer dive]} @(:frame app)]
     (hud/update-pointer-overlays! (:hud app) {:pointer [(:x pointer 0) (:y pointer 0)]
@@ -541,6 +548,7 @@
         app-holder (atom nil)
         dispatch-to-app! (fn [event] (dispatch! @app-holder event))
         hud-instance (hud/create-hud container dispatch-to-app!)
+        label-layer (labels/create-labels (:root hud-instance))
         frame (initial-frame (first-guess-night))
         app {:container container
              :transport transport
@@ -552,7 +560,8 @@
              :folder-layer (folders/create-layer scene)
              :edge-layer (edges/create-layer scene)
              :page-layer (pages/create-layer scene)
-             :labels (labels/create-labels (:root hud-instance))
+             :labels label-layer
+             :results (results/create-layer (:root label-layer))
              :caret-layer (editing/create-layer)
              :input (typing/create-input container dispatch-to-app!
                                          #(let [{:keys [editing buffers]} @(:state @app-holder)]

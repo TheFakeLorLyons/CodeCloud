@@ -40,7 +40,7 @@
   and :include-paths. Manifests guide resolution and never become pages."
   [all-facts {:keys [id label time weights include-paths]}]
   (let [manifests (filterv :manifest all-facts)
-        file-facts (resolution/resolve-imports (languages/assign-units (filterv (complement :manifest) all-facts))
+        file-facts (resolution/resolve-imports (languages/with-companions (filterv (complement :manifest) all-facts))
                                                manifests
                                                {:include-paths include-paths})
         {:keys [nodes edges]} (graph/build-graph file-facts)

@@ -80,5 +80,24 @@
   (icon [:path {:d "M9 14l-4.5-4.5L9 5"}]
         [:path {:d "M4.5 9.5H14a5 5 0 0 1 0 10h-3"}]))
 
+(def chevron-up
+  (icon [:path {:d "M6 14.5l6-6 6 6"}]))
+
 (def disclosure
   (icon [:path {:d "M9.5 7l5 5-5 5"}]))
+
+(def repl
+  (icon [:rect {:x 3 :y 4.5 :width 18 :height 15 :rx 2.5}]
+        [:path {:d "M7 9.5l3 2.5-3 2.5M12.5 15h4.5"}]))
+
+(def disconnect
+  (icon [:path {:d "M9 3.5v3.5M15 3.5v3.5M7 7h10v3.5a5 5 0 0 1-10 0zM12 15.5v5"}]
+        [:path {:d "M4 4l16 16"}]))
+
+(def interrupt
+  (icon [:circle {:cx 12 :cy 12 :r 8.5}]
+        [:rect {:x 9 :y 9 :width 6 :height 6 :rx 1 :fill "currentColor" :stroke "none"}]))
+
+(def clear-log
+  (icon [:path {:d "M4 6.5h16M4 11.5h9M4 16.5h6"}]
+        [:path {:d "M15.5 14.5l4 4M19.5 14.5l-4 4"}]))

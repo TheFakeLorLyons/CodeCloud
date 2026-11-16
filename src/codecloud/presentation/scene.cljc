@@ -5,7 +5,8 @@
             [codecloud.languages.catalog :as catalog]
             [codecloud.model.source :as source]
             [codecloud.presentation.arrangement :as arrangement]
-            [codecloud.presentation.page :as page]))
+            [codecloud.presentation.page :as page]
+            [codecloud.presentation.pairing :as pairing]))
 
 (defn label-parts
   "A name split into its shared prefix and last segment, or a path at its
@@ -237,10 +238,25 @@
   drawn fainter."
   #{:alias :implicit :link})
 
+(defn drawn-edges
+  "The edges of `snapshot` that draw as lines, each marked
+  :into-declaration? when it runs into a header or module interface. A
+  page's use of a source through the header beside it draws as its one
+  line to the header."
+  [snapshot]
+  (let [namespaces (:namespaces snapshot)
+        shown-through (pairing/reached-through-partners (:edges snapshot) namespaces)]
+    (into []
+          (comp (remove (fn [{:keys [from to kind]}] (and (= :implicit kind) (contains? shown-through [from to]))))
+                (map (fn [{:keys [to] :as edge}]
+                       (cond-> edge (pairing/declaration? (get namespaces to)) (assoc :into-declaration? true)))))
+          (:edges snapshot))))
+
 (defn edge-visuals
   "Edges between shown pages with :emphasis and a :role, :requires or
   :required-by, toward the lifted or hovered page. Ranked walls dim edges
-  outside cycles; the language layer makes cross-language edges :heavy?."
+  outside cycles; the language layer makes cross-language edges :heavy?.
+  Only `drawn-edges` take part."
   [snapshot {:keys [focused-id hovered-id search arrangement active-layers]} visible-ids]
   (let [anchor-id (or focused-id hovered-id)
         searching? (and (:open? search) (seq (search-matches snapshot (:query search))))
@@ -268,7 +284,7 @@
                                             focused-id (* 0.2 base-emphasis)
                                             hovered-id (* 0.6 base-emphasis)
                                             :else base-emphasis))))))
-          (:edges snapshot))))
+          (drawn-edges snapshot))))
 
 (defn layout-radius
   "Room a page claims in the layout. Pages always face the camera, so a
@@ -289,11 +305,11 @@
         (sort-by key visuals)))
 
 (defn layout-links
-  "Edges the layout pulls together between shown namespaces. Implicit
-  references pull too, since they are real uses."
+  "Drawn edges the layout pulls together between shown namespaces.
+  Implicit references pull too, since they are real uses."
   [snapshot visible-ids]
   (into []
         (comp (filter (fn [{:keys [from to]}]
                         (and (contains? visible-ids from) (contains? visible-ids to))))
               (map #(select-keys % [:from :to])))
-        (:edges snapshot)))
+        (drawn-edges snapshot)))

@@ -26,12 +26,12 @@
   (or (apply merge-with + (remove nil? tally-maps)) {}))
 
 (defn- merge-files
-  "One node from every file of the same unit, in path order, except that
-  the file the unit is named after comes last and gives the node its
-  language, so a C header reads before its source."
+  "One node from every file of the same unit, in path order, the first
+  giving the node its language. A C or C++ file keeps its :file-role and
+  any :companion."
   [id facts-list]
-  (let [ordered-facts (sort-by (juxt #(= id (:path %)) :path) facts-list)
-        primary (or (some #(when (= id (:path %)) %) ordered-facts) (first ordered-facts))
+  (let [ordered-facts (sort-by :path facts-list)
+        primary (first ordered-facts)
         namespace-name (some :namespace ordered-facts)
         definitions (collections/distinct-by
                      :name
@@ -46,7 +46,8 @@
              (= :clojure (:language primary :clojure)) :script
              :else :module)
      :doc (some :doc ordered-facts)
-     :files (mapv #(select-keys % [:path :language :dialect :line-count :longest-line :content-key :parse-error])
+     :files (mapv #(select-keys % [:path :language :dialect :line-count :longest-line :content-key :parse-error
+                                   :file-role :companion])
                   ordered-facts)
      :line-count (reduce + (map :line-count ordered-facts))
      :method-count (reduce + (map #(:method-count % 0) ordered-facts))

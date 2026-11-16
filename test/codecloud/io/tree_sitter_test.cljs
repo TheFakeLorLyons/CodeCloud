@@ -22,14 +22,15 @@
 
 (defn- live-matches
   "{path {grammar matches}} for each recorded file, parsed now with the
-  grammar the C family adapter would choose."
+  grammar the C family adapter would choose, as the adapter gives it the
+  text."
   [parse]
   (into (sorted-map)
         (for [file-path (recorded-paths)
               :let [text (source/normalize-text (fixtures/read-text file-path))
                     language (c-family/file-language (:id (catalog/language-by-name file-path)) file-path
                                                      (source/split-lines text))]]
-          [file-path {language (parse language text (get c-family/queries language))}])))
+          [file-path {language (parse language (c-family/grammar-text language text) (get c-family/queries language))}])))
 
 (defn- recording-text
   "The recording as EDN, one match to a line, so changes read as diffs."

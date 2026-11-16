@@ -79,16 +79,16 @@
     :file-names #{} :shebangs #{}
     :line-comment "//"
     :project-markers ["CMakeLists.txt" "Makefile" "meson.build" "compile_commands.json"]
-    :words {:unit ["file" "files"] :uses "Includes" :used-by "Included by"}
+    :words {:unit ["file" "files"] :uses "Uses" :used-by "Used by"}
     :cycles :allowed
     :analyzed? true
     :syntax-tree? true}
    {:id :cpp :label "C++" :tag "c++"
-    :extensions #{"cc" "cpp" "cxx" "c++" "hpp" "hh" "hxx" "h++" "inl" "ipp" "tpp"}
+    :extensions #{"cc" "cpp" "cxx" "c++" "hpp" "hh" "hxx" "h++" "inl" "ipp" "tpp" "cppm" "ixx" "mpp" "cxxm" "ccm" "c++m"}
     :file-names #{} :shebangs #{}
     :line-comment "//"
     :project-markers ["CMakeLists.txt" "meson.build" "compile_commands.json"]
-    :words {:unit ["file" "files"] :uses "Includes" :used-by "Included by"}
+    :words {:unit ["file" "files"] :uses "Uses" :used-by "Used by"}
     :cycles :allowed
     :analyzed? true
     :syntax-tree? true

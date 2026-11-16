@@ -2,6 +2,7 @@
   "Runs every CodeCloud test namespace on Node and reports failure through
   the process exit code."
   (:require [cljs.test :as test]
+            [codecloud.io.nrepl-test]
             [codecloud.io.theme-files-test]
             [codecloud.io.tree-sitter-test]
             [codecloud.languages.c-family-test]
@@ -16,8 +17,11 @@
             [codecloud.model.workspace-test]
             [codecloud.presentation.arrangement-test]
             [codecloud.presentation.code-colors-test]
+            [codecloud.presentation.definitions-test]
             [codecloud.presentation.editing-test]
+            [codecloud.presentation.forms-test]
             [codecloud.presentation.layers-test]
+            [codecloud.presentation.pairing-test]
             [codecloud.presentation.presentation-test]
             [codecloud.presentation.ui-state-test]
             [codecloud.presentation.visibility-test]))

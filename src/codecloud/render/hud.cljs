@@ -11,6 +11,7 @@
             [codecloud.render.hud.menu :as menu]
             [codecloud.render.hud.messages :as messages]
             [codecloud.render.hud.pointer :as pointer]
+            [codecloud.render.hud.repl :as repl]
             [codecloud.render.hud.search :as search]
             [codecloud.render.hud.timeline :as timeline]
             [codecloud.render.hud.title :as title]
@@ -21,7 +22,7 @@
   "Every overlay panel in drawing order."
   [title/panel toolbar/panel search/panel
    messages/status-panel messages/notices-panel messages/empty-panel
-   legend/panel views/panel arrange/panel inspector/panel timeline/panel menu/panel chooser/panel
+   legend/panel views/panel arrange/panel inspector/panel timeline/panel repl/panel menu/panel chooser/panel
    pointer/tooltip-panel pointer/dive-panel])
 
 (defn create-hud

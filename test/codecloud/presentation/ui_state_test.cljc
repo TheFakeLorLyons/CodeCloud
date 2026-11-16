@@ -312,6 +312,54 @@
    :edges [{:from "app.core" :to "app.db" :kind :load :reference-count 1}]
    :cycles []})
 
+(deftest header-pages-follow-the-header-mode
+  (let [snapshot {:id :working-tree
+                  :namespaces {"src/board.cpp" {:name "src/board.cpp" :importance 1.0
+                                                :files [{:path "src/board.cpp" :file-role :source}]}
+                               "src/board.hpp" {:name "src/board.hpp" :importance 0.5
+                                                :files [{:path "src/board.hpp" :file-role :header
+                                                         :companion "src/board.cpp"}]}}
+                  :edges []}
+        loaded (:state (run-events [[:host {:type :host/snapshot :snapshot snapshot}]]))
+        saved-preferences (fn [effects]
+                            (keep (fn [[_ message]]
+                                    (when (= :view/save-preference (:type message)) (select-keys message [:key :value])))
+                                  effects))]
+    (is (= :beside (:header-mode loaded)))
+    (is (= #{"src/board.cpp" "src/board.hpp"} (ui-state/visible-ids loaded)))
+    (testing "hidden headers leave the cloud, and the choice is remembered"
+      (let [{:keys [state effects]} (ui-state/handle loaded [:set-header-mode :hidden])]
+        (is (= #{"src/board.cpp"} (ui-state/visible-ids state)))
+        (is (some #{[:refit]} effects))
+        (is (= [{:key :header-mode :value :hidden}] (saved-preferences effects)))
+        (is (= #{"src/board.cpp" "src/board.hpp"}
+               (ui-state/visible-ids (:state (ui-state/handle state [:set-header-mode :alone])))))))
+    (testing "a remembered mode arrives with the host's first message"
+      (is (= #{"src/board.cpp"}
+             (ui-state/visible-ids (:state (run-events [[:host {:type :host/init :header-mode :hidden}]
+                                                        [:host {:type :host/snapshot :snapshot snapshot}]]))))))
+    (testing "choosing the mode in force changes nothing"
+      (is (empty? (:effects (ui-state/handle loaded [:set-header-mode :beside])))))))
+
+(deftest names-jump-to-their-definitions
+  (let [snapshot {:id :working-tree
+                  :namespaces {"main.cpp" {:name "main.cpp" :importance 1.0 :files [{:path "main.cpp"}] :definitions []}
+                               "board.cpp" {:name "board.cpp" :importance 0.5 :files [{:path "board.cpp"}]
+                                            :definitions [{:name "Board::read" :line 7} {:name "Board::read" :line 12}
+                                                          {:name "Board::open" :line 20}]}}
+                  :edges [{:from "main.cpp" :to "board.cpp" :kind :implicit :uses {"Board::read" 2 "Board::open" 1}}]}
+        loaded (:state (run-events [[:host {:type :host/snapshot :snapshot snapshot}]]))
+        jump (fn [written] (ui-state/handle loaded [:jump-to-name {:namespace-id "main.cpp" :name written :x 5 :y 6}]))]
+    (testing "a name with one definition flies to its line"
+      (is (some #{[:fly-to-line {:namespace-id "board.cpp" :path "board.cpp" :name "Board::open" :line 20}]}
+                (:effects (jump "open")))))
+    (testing "a name with several opens a menu of them at the pointer"
+      (let [{:keys [state]} (jump "read")]
+        (is (= {:kind :definitions :name "read" :x 5 :y 6} (select-keys (:menu state) [:kind :name :x :y])))
+        (is (= [7 12] (mapv :line (get-in state [:menu :choices]))))))
+    (testing "a name defined on no shown page says so"
+      (is (= ["No page shown defines missing."] (:notices (:state (jump "missing"))))))))
+
 (deftest hidden-pages-leave-weights-and-colors
   (let [loaded (:state (run-events [[:host {:type :host/snapshot :snapshot linked-snapshot}]]))
         {:keys [state effects]} (ui-state/handle loaded [:toggle-page "app.core"])]
@@ -356,3 +404,148 @@
     (testing "chosen colors arrive with init"
       (is (= teal (get-in (:state (ui-state/handle loaded [:host {:type :host/init :color-overrides {:folder {"src/app" teal}}}]))
                           [:color-overrides :folder "src/app"]))))))
+
+(defn- sent-messages [effects]
+  (keep (fn [[effect-kind message]] (when (= :send effect-kind) (dissoc message :protocol/version))) effects))
+
+(deftest the-repl-pane
+  (testing "opening the pane looks for the project's server, and closing it says nothing"
+    (let [{opened :state :keys [effects]} (ui-state/handle ui-state/initial-state [:toggle-repl])]
+      (is (get-in opened [:repl :open?]))
+      (is (= :connecting (get-in opened [:repl :status])))
+      (is (= [{:type :view/repl-connect}] (sent-messages effects)))
+      (is (= [false []] ((juxt #(get-in % [:state :repl :open?]) :effects) (ui-state/handle opened [:toggle-repl]))))
+      (is (empty? (:effects (ui-state/handle (assoc-in ui-state/initial-state [:repl :status] :failed) [:toggle-repl])))
+          "after a failure, connecting again waits for the viewer")))
+  (testing "a failed connection opens the pane, which says why"
+    (let [state (:state (ui-state/handle ui-state/initial-state
+                                         [:host {:type :host/repl-status :status :failed :message "No nREPL port file."}]))]
+      (is (get-in state [:repl :open?]))
+      (is (= [[:info "No nREPL port file."]] (mapv (juxt :kind :text) (get-in state [:repl :log]))))))
+  (testing "a port typed while disconnected connects there"
+    (is (= [{:type :view/repl-connect :port 7888}]
+           (sent-messages (:effects (ui-state/handle ui-state/initial-state [:repl-submit " 7888 "])))))
+    (is (= [{:type :view/repl-connect :host "localhost" :port 7888}]
+           (sent-messages (:effects (ui-state/handle ui-state/initial-state [:repl-submit "localhost:7888"]))))))
+  (testing "code typed while connected evaluates in the pane's namespace, which follows its replies"
+    (let [connected (assoc-in ui-state/initial-state [:repl :status] :connected)
+          {first-state :state first-effects :effects} (ui-state/handle connected [:repl-submit "(in-ns 'app.db)"])
+          answered (:state (ui-state/handle-all first-state
+                                                [[:host {:type :host/repl-output :id "eval-0" :value "#namespace[app.db]" :ns "app.db"}]
+                                                 [:host {:type :host/repl-output :id "eval-0" :status ["done"]}]]))
+          {second-state :state second-effects :effects} (ui-state/handle answered [:repl-submit "7888"])]
+      (is (= [{:type :view/repl-eval :id "eval-0" :code "(in-ns 'app.db)"}] (sent-messages first-effects)))
+      (is (= "user=> (in-ns 'app.db)" (:text (first (get-in first-state [:repl :log])))))
+      (is (= "app.db" (get-in answered [:repl :ns])))
+      (is (empty? (get-in answered [:repl :pending])))
+      (is (= [{:type :view/repl-eval :id "eval-1" :code "7888" :ns "app.db"}] (sent-messages second-effects))
+          "a number is code once connected")
+      (is (= ["(in-ns 'app.db)" "7888"] (get-in second-state [:repl :history])))))
+  (testing "output of one request joins one entry, and the log keeps its latest entries"
+    (let [state (:state (ui-state/handle-all ui-state/initial-state
+                                             [[:host {:type :host/repl-output :id "eval-0" :out "a"}]
+                                              [:host {:type :host/repl-output :id "eval-0" :out "b\n"}]
+                                              [:host {:type :host/repl-output :id "eval-0" :err "oops\n"}]
+                                              [:host {:type :host/repl-output :id "eval-0" :out "c"}]]))
+          flooded (reduce (fn [state index]
+                            (:state (ui-state/handle state [:host {:type :host/repl-output :id (str "eval-" index) :value "1"}])))
+                          ui-state/initial-state
+                          (range 450))]
+      (is (= [[:out "ab\n"] [:err "oops\n"] [:out "c"]] (mapv (juxt :kind :text) (get-in state [:repl :log]))))
+      (is (= 400 (count (get-in flooded [:repl :log]))))
+      (is (= 449 (:number (peek (get-in flooded [:repl :log])))))
+      (is (empty? (get-in (:state (ui-state/handle state [:repl-clear])) [:repl :log])))))
+  (testing "interrupting asks the host only while something runs"
+    (is (empty? (:effects (ui-state/handle ui-state/initial-state [:repl-interrupt]))))
+    (is (= [{:type :view/repl-interrupt}]
+           (sent-messages (:effects (ui-state/handle (assoc-in ui-state/initial-state [:repl :pending "eval-0"] {:origin :pane})
+                                                     [:repl-interrupt])))))))
+
+(defn- editing-file
+  "The state editing `text` as the file of app.db, the caret at `position`."
+  [text position]
+  (let [loaded (:state (run-events [[:host {:type :host/snapshot :snapshot (snapshot-with-id :working-tree)}]
+                                    [:host {:type :host/sources :snapshot-id :working-tree
+                                            :entries [{:namespace-id "app.db" :source-key ["app.db" [nil]]
+                                                       :files [{:path "src/app/db.clj" :text text}]}]}]]))]
+    (:state (ui-state/handle loaded [:begin-editing {:namespace-id "app.db" :path "src/app/db.clj" :position position
+                                                     :columns 1 :rows 4}]))))
+
+(deftest evaluating-from-a-page
+  (let [db-path "src/app/db.clj"
+        text "(ns app.db)\n(defn add [a b]\n  (+ a b))\n(comment (add 1 2))\n"
+        editing (editing-file text [2 9])
+        result-of (fn [state] (select-keys (get-in state [:inline-results [db-path 2]]) [:status :text]))]
+    (testing "the form at the caret goes to the REPL in the file's namespace, from where it starts"
+      (let [{:keys [state effects]} (ui-state/handle editing [:evaluate :form])]
+        (is (= [{:type :view/repl-eval :id "eval-0" :code "(+ a b)" :ns "app.db" :path db-path :line 3 :column 3}]
+               (sent-messages effects)))
+        (is (= {:id "eval-0" :namespace-id "app.db" :path db-path :line 2 :column 10 :status :pending}
+               (select-keys (get-in state [:inline-results [db-path 2]]) [:id :namespace-id :path :line :column :status])))
+        (is (= "app.db=> (+ a b)" (:text (peek (get-in state [:repl :log])))))
+        (testing "its value shows at the end of its line, until the file is edited"
+          (let [answered (:state (ui-state/handle-all state [[:host {:type :host/repl-output :id "eval-0" :value "3" :ns "app.db"}]
+                                                             [:host {:type :host/repl-output :id "eval-0" :status ["done"]}]]))]
+            (is (= {:status :value :text "3"} (result-of answered)))
+            (is (nil? (get-in answered [:repl :ns])) "the pane keeps its own namespace")
+            (is (empty? (:inline-results (:state (ui-state/handle answered [:edit :type " "])))))
+            (is (= {:status :value :text "3"}
+                   (result-of (:state (ui-state/handle answered [:host {:type :host/document :path db-path :text (str text "\n")
+                                                                        :content-key "k2" :epoch 1 :dirty? true}]))))
+                "a change elsewhere leaves a result whose line still reads the same")))
+        (testing "an error shows its message"
+          (is (= {:status :error :text "Divide by zero"}
+                 (result-of (:state (ui-state/handle-all
+                                     state
+                                     [[:host {:type :host/repl-output :id "eval-0"
+                                              :err "Execution error (ArithmeticException) at app.db/add (db.clj:3).\nDivide by zero\n"}]
+                                      [:host {:type :host/repl-output :id "eval-0" :ex "class java.lang.ArithmeticException"
+                                              :status ["eval-error"]}]
+                                      [:host {:type :host/repl-output :id "eval-0" :status ["done"]}]]))))))
+        (testing "a request that never reached a server says so"
+          (is (= {:status :error :text "Not connected"}
+                 (result-of (:state (ui-state/handle state [:host {:type :host/repl-output :id "eval-0"
+                                                                   :status ["done" "not-connected"]}]))))))))
+    (testing "the top-level form, and inside a rich comment the form there"
+      (is (= "(defn add [a b]\n  (+ a b))" (:code (first (sent-messages (:effects (ui-state/handle editing [:evaluate :top-level])))))))
+      (is (= "(add 1 2)" (:code (first (sent-messages (:effects (ui-state/handle (editing-file text [3 15]) [:evaluate :top-level]))))))))
+    (testing "a selection goes as it is"
+      (let [selected (:state (ui-state/handle editing [:edit :select [1 6] [1 9]]))]
+        (is (= "add" (:code (first (sent-messages (:effects (ui-state/handle selected [:evaluate :form])))))))))
+    (testing "the whole file loads, its result on the first line"
+      (let [{:keys [state effects]} (ui-state/handle editing [:evaluate :file])]
+        (is (= [{:type :view/repl-load-file :id "eval-0" :code (subs text 0 (dec (count text))) :path db-path}]
+               (sent-messages effects)))
+        (is (= {:status :pending :loading? true}
+               (select-keys (get-in state [:inline-results [db-path 0]]) [:status :loading?])))))
+    (testing "nothing goes without a closed Clojure form at the caret"
+      (doseq [state [(editing-file "(ns app.db)\n\n(def x 1)" [1 0])
+                     (editing-file "(ns app.db)\n(defn add [a b]\n" [1 15])
+                     (assoc-in editing [:buffers db-path :language] :python)]]
+        (let [{evaluated :state :keys [effects]} (ui-state/handle state [:evaluate :form])]
+          (is (empty? effects))
+          (is (seq (:notices evaluated))))))))
+
+(deftest clicks-on-the-page-being-edited
+  (let [editing (editing-file "(ns app.db)\n(def x 1)" [1 3])
+        lifted (:state (ui-state/handle editing [:click-namespace "app.db"]))]
+    (testing "a click off the code of a page being edited lifts it, the caret staying"
+      (is (= "app.db" (:focused-id lifted)))
+      (is (= "src/app/db.clj" (get-in lifted [:editing :path]))))
+    (testing "another such click leaves it lifted and the caret in place"
+      (let [{:keys [state effects]} (ui-state/handle lifted [:click-namespace "app.db"])]
+        (is (= "app.db" (:focused-id state)))
+        (is (= [1 3] (get-in state [:buffers "src/app/db.clj" :caret])))
+        (is (empty? effects))))
+    (testing "a click on another page still stops editing"
+      (is (nil? (:editing (:state (ui-state/handle lifted [:click-namespace "app.core"]))))))))
+
+(deftest the-inspector-minimizes
+  (let [{:keys [state effects]} (ui-state/handle ui-state/initial-state [:toggle-inspector])]
+    (is (true? (:inspector-minimized? state)))
+    (is (= [{:type :view/save-preference :key :inspector-minimized? :value true}] (sent-messages effects)))
+    (is (false? (:inspector-minimized? (:state (ui-state/handle state [:toggle-inspector]))))))
+  (testing "the choice comes back with the host's first message"
+    (is (true? (:inspector-minimized? (:state (ui-state/handle ui-state/initial-state
+                                                                 [:host {:type :host/init :inspector-minimized? true}])))))
+    (is (false? (:inspector-minimized? (:state (ui-state/handle ui-state/initial-state [:host {:type :host/init}])))))))

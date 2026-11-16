@@ -15,7 +15,10 @@
    :top-level-forms "Spans of the file's top-level forms, statements, rules, or commands, each {:line :column :end-line :end-column}"
    :measured-forms "Definitions past a complection threshold, each with a :name and a :score"
    :flag-counts "Map of flag name to occurrences"
-   :parse-error "{:message :line :column} when reading stopped early, or nil"})
+   :parse-error "{:message :line :column} when reading stopped early, or nil"
+   :file-role "For a C or C++ file, :source, :header, :inline, :interface, or :implementation"
+   :companion "For a C or C++ header or module interface, the path of the file whose page it sits beside"
+   :module "For a C++ module unit, {:name :partition :export?}"})
 
 (defn problems
   "Descriptions of the ways `facts` breaks the contract, empty when it

@@ -476,13 +476,42 @@ body {
   gap: 10px;
 }
 
+.inspector-tools {
+  display: flex;
+  flex: none;
+  margin: -4px -6px 0 auto;
+}
+
 .inspector-header .icon-button {
   flex: none;
   width: 32px;
   height: 32px;
-  margin: -4px -6px 0 auto;
   border-color: transparent;
   background: transparent;
+}
+
+.minimize-button svg {
+  transition: transform 160ms ease;
+}
+
+/* Minimized, the panel keeps its header alone, and the name shows the
+   details again. */
+.hud-inspector.is-minimized {
+  bottom: auto;
+  overflow: hidden;
+  padding-bottom: 14px;
+}
+
+.hud-inspector.is-minimized > :not(.inspector-header) {
+  display: none;
+}
+
+.hud-inspector.is-minimized .inspector-name {
+  cursor: pointer;
+}
+
+.hud-inspector.is-minimized .minimize-button svg {
+  transform: rotate(180deg);
 }
 
 .inspector-name {
@@ -872,6 +901,10 @@ body {
 .swatch-line.is-heavy {
   height: 5px;
   border-radius: 3px;
+}
+
+.swatch-line.is-dashed {
+  background: repeating-linear-gradient(90deg, var(--edge) 0 5px, transparent 5px 9px);
 }
 
 .family-list {
@@ -1864,6 +1897,254 @@ body {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
+/* REPL pane */
+
+.hud-repl {
+  position: absolute;
+  left: 16px;
+  bottom: 84px;
+  display: flex;
+  flex-direction: column;
+  width: min(350px, calc(100vw - 32px));
+  height: 225px;
+  min-width: 240px;
+  min-height: 140px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
+  resize: both;
+  border: 1px solid var(--hairline);
+  border-radius: 18px 18px 18px 6px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: var(--lift);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(8px);
+  visibility: hidden;
+  /* Visible at once on opening, so its input can take the keys, and
+     hidden only once it has faded on closing. */
+  transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms;
+  z-index: 1;
+}
+
+.hud-repl.is-open {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition: opacity 180ms ease, transform 180ms ease, visibility 0s;
+}
+
+.repl-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 4px 12px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.repl-header:active {
+  cursor: grabbing;
+}
+
+.repl-light {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-soft);
+  opacity: 0.55;
+}
+
+.hud-repl.is-connected .repl-light {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.hud-repl.is-connecting .repl-light {
+  background: var(--cycle-warning);
+  opacity: 1;
+  animation: repl-waiting 1.2s ease-in-out infinite;
+}
+
+.hud-repl.is-failed .repl-light {
+  background: var(--cycle);
+  opacity: 1;
+}
+
+@keyframes repl-waiting {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.repl-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.repl-header .text-button {
+  flex: none;
+  padding: 2px 9px;
+  font-size: 12px;
+}
+
+.repl-tool {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-color: transparent;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.repl-tool svg {
+  width: 16px;
+  height: 16px;
+}
+
+.repl-tool:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.repl-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 12px 6px;
+  font-family: var(--code-font);
+  font-variation-settings: normal;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.repl-line.is-input {
+  color: var(--ink-soft);
+}
+
+.repl-line + .repl-line.is-input {
+  margin-top: 5px;
+}
+
+.repl-line.is-value {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.repl-line.is-err {
+  color: var(--cycle);
+}
+
+.repl-line.is-info {
+  font-family: var(--ui-font);
+  font-variation-settings: "MONO" 0.15;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.repl-entry {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 6px 12px 8px;
+  border-top: 1px solid var(--hairline);
+  font-family: var(--code-font);
+  font-variation-settings: normal;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: text;
+}
+
+.repl-entry:focus-within {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.repl-prompt {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 650;
+  color: var(--accent);
+}
+
+.hud .repl-input {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  resize: none;
+  background: transparent;
+  font-family: var(--code-font);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.hud .repl-input:focus-visible {
+  outline: none;
+}
+
+.repl-input::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.75;
+}
+
+/* Results of evaluations, on the pages they came from */
+
+.result-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.inline-result {
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin-left: 1.2ch;
+  padding: 0 0.45em;
+  max-width: 60ch;
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 0.5em;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--ink);
+  font-family: var(--code-font);
+  font-variation-settings: normal;
+  line-height: 1.3;
+  will-change: transform;
+}
+
+.inline-result.is-pending {
+  color: var(--ink-soft);
+}
+
+.inline-result.is-error {
+  border-color: color-mix(in srgb, var(--cycle) 45%, transparent);
+  background: color-mix(in srgb, var(--cycle) 12%, var(--panel));
+  color: var(--cycle);
+}
+
 /* Names floating over pages and folder clouds */
 
 .label-layer {
@@ -1949,7 +2230,8 @@ body {
 }
 
 @media (max-width: 720px) {
-  .hud-inspector {
+  .hud-inspector,
+  .hud-inspector.is-minimized {
     top: auto;
     max-height: 55vh;
     bottom: 84px;

@@ -402,6 +402,7 @@
    attribute vec3 endColor;
    attribute float edgeWidth;
    attribute float flow;
+   attribute float dashed;
    uniform vec2 viewport;
    uniform vec3 cameraRight;
    uniform vec3 cameraUp;
@@ -409,6 +410,7 @@
    varying float acrossEdge;
    varying vec4 color;
    varying float flowStrength;
+   varying float dashCount;
 
    vec3 curvePoint(float fraction) {
      vec3 span = edgeEnd - edgeStart;
@@ -448,6 +450,11 @@
      acrossEdge = side;
      color = vec4(mix(startColor.rgb, endColor, smoothstep(0.08, 0.92, progress)), startColor.a);
      flowStrength = flow;
+     // A dash and its gap span six widths of the line, however long the line shows.
+     vec4 clipStart = viewProjection * vec4(curvePoint(0.0), 1.0);
+     vec4 clipEnd = viewProjection * vec4(curvePoint(1.0), 1.0);
+     vec2 screenSpan = (clipEnd.xy / max(clipEnd.w, 0.0001) - clipStart.xy / max(clipStart.w, 0.0001)) * 0.5 * viewport;
+     dashCount = dashed * max(1.0, length(screenSpan) / (6.0 * edgeWidth));
    }")
 
 (def edge-fragment
@@ -457,10 +464,13 @@
    varying float acrossEdge;
    varying vec4 color;
    varying float flowStrength;
+   varying float dashCount;
    void main() {
      float softEdge = 1.0 - smoothstep(0.35, 1.0, abs(acrossEdge));
      float wave = fract(alongEdge * 2.5 - time * 0.32 * motion * (1.0 + flowStrength));
      float pulse = smoothstep(0.0, 0.06, wave) * (1.0 - smoothstep(0.06, 0.22, wave));
-     float alpha = color.a * softEdge * (0.55 + 0.45 * pulse * (0.4 + flowStrength));
+     float dashPhase = fract(alongEdge * dashCount);
+     float dash = dashCount > 0.0 ? 1.0 - smoothstep(0.5, 0.62, dashPhase) : 1.0;
+     float alpha = color.a * softEdge * dash * (0.55 + 0.45 * pulse * (0.4 + flowStrength));
      gl_FragColor = vec4(color.rgb + pulse * 0.18 * (0.4 + flowStrength), alpha);
    }")

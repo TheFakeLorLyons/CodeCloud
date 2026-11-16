@@ -15,6 +15,11 @@
    :view/save-preference "view to host: remember :key with :value for this viewer"
    :view/save-view "view to host: add a view called :name with :selection to the cloud file"
    :view/log "view to host: write :message to the extension's output channel"
+   :view/repl-connect "view to host: connect the REPL to the nREPL server at :host and :port, or without a :port to the one a port file in the cloud's folder or a folder above names"
+   :view/repl-disconnect "view to host: close the REPL's connection"
+   :view/repl-eval "view to host: evaluate :code as request :id in namespace :ns, read from :path at :line and :column, counted from one, when it comes from a file"
+   :view/repl-load-file "view to host: load :path into the REPL as request :id, its text being :code"
+   :view/repl-interrupt "view to host: stop every evaluation of this cloud still running"
    :host/init "host to view: settings, theme, editor font, and remembered preferences"
    :host/views "host to view: the cloud file's named :views and its :color-layers"
    :host/snapshot "host to view: a snapshot to draw"
@@ -28,7 +33,9 @@
    :host/edited "host to view: edit :revision of :path applied, leaving text with :content-key, and whether the file is :dirty?"
    :host/document "host to view: :path holds :text with :content-key, after an edit that could not apply or a change from elsewhere; later edits build on :epoch"
    :host/dirty "host to view: whether :path has unsaved changes"
-   :host/notice "host to view: a :message worth showing, such as configuration problems"})
+   :host/notice "host to view: a :message worth showing, such as configuration problems"
+   :host/repl-status "host to view: the REPL connection's :status, one of :connecting, :connected, :disconnected, and :failed, with its :port and a :message saying what happened"
+   :host/repl-output "host to view: part of the answer to request :id, holding :out or :err text, a printed :value with its :ns, an :ex class, or :status words, done among them in the last part"})
 
 (defn encode
   "Message map to string."

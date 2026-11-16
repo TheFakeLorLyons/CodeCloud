@@ -1,7 +1,8 @@
 (ns codecloud.render.hud.arrange
-  "The arrange panel: placement, color layers, code colors, spacing, and
-  putting moved pages back."
+  "The arrange panel: placement, headers, color layers, code colors,
+  spacing, and putting moved pages back."
   (:require [codecloud.presentation.arrangement :as arrangement]
+            [codecloud.presentation.pairing :as pairing]
             [codecloud.presentation.ui-state :as ui-state]
             [codecloud.render.dom :as dom]
             [codecloud.render.hud.swatches :as swatches]
@@ -26,6 +27,17 @@
                       :title description
                       :on-click #(dispatch [event-kind option-key])}
       label])])
+
+(defn- offers-headers?
+  "True when the cloud holds pages the header modes place, worked out
+  once a snapshot and kept in `cache`."
+  [cache snapshot]
+  (let [[cached-snapshot cached-answer] @cache]
+    (if (identical? cached-snapshot snapshot)
+      cached-answer
+      (let [answer (pairing/offers-header-modes? snapshot)]
+        (reset! cache [snapshot answer])
+        answer))))
 
 (defn- layer-row
   "A color layer's checkbox and preview."
@@ -102,7 +114,7 @@
       [:span.spacing-end "Open"]]
      [:button.text-button.usual-spacing {:on-click #(dispatch [:set-spread 1])} "Usual spacing"]]))
 
-(defn- arrange-content [dispatch {:keys [arrangement moved-pages] :as state}]
+(defn- arrange-content [dispatch {:keys [arrangement header-mode moved-pages] :as state} headers?]
   (list
    [:header.panel-header
     [:h2 "Arrange"]
@@ -110,6 +122,10 @@
    [:section.arrange-section
     [:h3 "Place pages by"]
     (option-buttons dispatch arrangement/arrangements arrangement :set-arrangement)]
+   (when headers?
+     [:section.arrange-section
+      [:h3 "Headers"]
+      (option-buttons dispatch pairing/header-modes header-mode :set-header-mode)])
    (color-section dispatch state)
    (code-section dispatch)
    (spacing-section dispatch)
@@ -146,16 +162,17 @@
               (.addEventListener root "keydown" (fn [^js event]
                                                   (when-not (= "Escape" (.-key event))
                                                     (.stopPropagation event))))
-              {:root root :dispatch dispatch :shown (atom nil) :slider (atom nil)}))
-   :update (fn [{:keys [root dispatch shown slider]} {:keys [arrange-open? arrangement moved-pages spread
-                                                             layer-registry layer-contexts]
-                                                      :as state}]
+              {:root root :dispatch dispatch :shown (atom nil) :slider (atom nil) :headers (atom nil)}))
+   :update (fn [{:keys [root dispatch shown slider headers]} {:keys [arrange-open? arrangement header-mode moved-pages
+                                                                     spread layer-registry layer-contexts snapshot]
+                                                              :as state}]
              (dom/toggle-class! root "is-open" arrange-open?)
              (when arrange-open?
-               (let [shown-key [arrangement (empty? moved-pages) layer-registry layer-contexts]]
+               (let [headers? (offers-headers? headers snapshot)
+                     shown-key [arrangement header-mode headers? (empty? moved-pages) layer-registry layer-contexts]]
                  (when (not= shown-key @shown)
                    (reset! shown shown-key)
-                   (dom/replace-children! root (arrange-content dispatch state))
+                   (dom/replace-children! root (arrange-content dispatch state headers?))
                    (reset! slider (attach-slider! root dispatch))))
                (show-layers! root state)
                (show-code-colors! root state)

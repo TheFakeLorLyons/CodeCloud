@@ -40,7 +40,7 @@
 (def ^:private quiet-edge-words
   "What each kind of faint line stands for."
   {:alias "alias"
-   :implicit "use without a require"
+   :implicit "use without a require or include"
    :link "link"})
 
 (defn- mark-rows
@@ -56,8 +56,9 @@
 
 (defn- line-rows
   "Rows for the kinds of line in view."
-  [{:keys [edges]} active-layers]
-  (let [quiet? #(contains? scene/quiet-edge-kinds (:kind %))
+  [snapshot active-layers]
+  (let [edges (scene/drawn-edges snapshot)
+        quiet? #(contains? scene/quiet-edge-kinds (:kind %))
         quiet-kinds (into #{} (comp (filter quiet?) (map :kind)) edges)]
     (list
      (when (some (complement quiet?) edges)
@@ -67,6 +68,8 @@
                 (words/capitalized (collections/spoken-list (keep #(when (contains? quiet-kinds %) (quiet-edge-words %))
                                                                   [:alias :implicit :link])
                                                             "or"))))
+     (when (some :into-declaration? edges)
+       (key-row [:span.swatch.swatch-line.is-dashed] "Into a header or module interface"))
      (when (and (contains? active-layers :language) (some :cross-language? edges))
        (key-row [:span.swatch.swatch-line.is-heavy] "Between languages")))))
 
@@ -77,11 +80,15 @@
    ["Click" "Bring closer, again to set back"]
    ["Click code" "Edit it there, Esc to stop"]
    ["Ctrl+S" "Save while editing"]
+   ["Ctrl+Enter" "Evaluate the form at the caret"]
+   ["Alt+Enter" "Evaluate the top-level form"]
+   ["Ctrl+Shift+Enter" "Load the file into the REPL"]
    ["Double-click" "Fly there"]
    ["Ctrl or Alt drag" "Move a page"]
    ["/" "Find"]
    ["N" "Code or names"]
    ["A" "Arrange"]
+   ["R" "REPL"]
    ["[ ]" "Spacing"]
    ["?" "Legend"]])
 

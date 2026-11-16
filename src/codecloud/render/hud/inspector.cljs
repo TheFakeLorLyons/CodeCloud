@@ -38,9 +38,20 @@
      (empty? namespace-ids) [:p.quiet "None"]
      :else nil)])
 
-(defn- close-button [dispatch]
-  [:button.icon-button {:aria-label "Set it back" :title "Set it back (Esc)" :on-click #(dispatch [:click-empty])}
-   icons/close])
+(defn- header
+  "The panel's header: the name, which shows the details again while they
+  are minimized, a button minimizing them to this header, and one setting
+  the page or folder back."
+  [dispatch name-parts]
+  [:header.inspector-header
+   [:h2.inspector-name {:on-click (fn [^js event]
+                                    (when (.closest (.-target event) ".is-minimized")
+                                      (dispatch [:toggle-inspector])))}
+    (words/name-heading name-parts)]
+   [:span.inspector-tools
+    [:button.icon-button.minimize-button {:on-click #(dispatch [:toggle-inspector])} icons/chevron-up]
+    [:button.icon-button {:aria-label "Set it back" :title "Set it back (Esc)" :on-click #(dispatch [:click-empty])}
+     icons/close]]])
 
 (defn- complection-reasons
   "Why a definition scores: measurements past their thresholds, and
@@ -148,9 +159,7 @@
         parse-error (some :parse-error files)
         {:keys [uses used-by]} (wording/node-words node)]
     (list
-     [:header.inspector-header
-      [:h2.inspector-name (words/name-heading (scene/label-parts node))]
-      (close-button dispatch)]
+     (header dispatch (scene/label-parts node))
      (when-let [kind-line (wording/kind-description node)] [:p.inspector-kind kind-line])
      (when ranking (ranking-line ranking))
      (when-let [paragraph (words/first-paragraph (:doc node))] [:p.inspector-doc paragraph])
@@ -193,9 +202,7 @@
         [_ plural] (wording/unit-words {:namespaces (zipmap member-ids nodes)})
         label (scene/directory-label directory cloud-name)]
     (list
-     [:header.inspector-header
-      [:h2.inspector-name (words/name-heading label)]
-      (close-button dispatch)]
+     (header dispatch label)
      [:p.inspector-kind "Folder"]
      [:dl.inspector-metrics
       [:div [:dt (words/capitalized plural)] [:dd (words/formatted-count (count member-ids))]]
@@ -225,6 +232,17 @@
            :unit unit
            :value (arrangement/metric-value (get-in snapshot [:namespaces namespace-id]) metric)})))))
 
+(defn- show-minimized!
+  "Marks the panel minimized or not, and words its minimize button to
+  match."
+  [^js root minimized?]
+  (dom/toggle-class! root "is-minimized" minimized?)
+  (when-let [^js button (dom/find-in root ".minimize-button")]
+    (let [label (if minimized? "Show the details" "Minimize the details")]
+      (.setAttribute button "title" label)
+      (.setAttribute button "aria-label" label)
+      (.setAttribute button "aria-expanded" (str (not minimized?))))))
+
 (def panel
   {:id :inspector
    :mount (fn [dispatch]
@@ -232,7 +250,8 @@
              :dispatch dispatch
              :shown (atom nil)})
    :update (fn [{:keys [root dispatch shown]} {:keys [focused-id lifted-folder visible-snapshot arrangement
-                                                      page-colors layer-contexts active-layers] :as state}]
+                                                      page-colors layer-contexts active-layers inspector-minimized?]
+                                               :as state}]
              (let [shown-key [focused-id lifted-folder visible-snapshot arrangement page-colors layer-contexts active-layers]]
                (when (not= shown-key @shown)
                  (reset! shown shown-key)
@@ -247,4 +266,5 @@
                    (do (dom/replace-children! root (folder-inspector dispatch state lifted-folder))
                        (dom/toggle-class! root "is-open" true))
 
-                   :else (dom/toggle-class! root "is-open" false)))))})
+                   :else (dom/toggle-class! root "is-open" false)))
+               (show-minimized! root inspector-minimized?)))})

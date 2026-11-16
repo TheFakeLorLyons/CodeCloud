@@ -14,6 +14,7 @@
             [codecloud.vscode.clouds :as clouds]
             [codecloud.vscode.editor-theme :as editor-theme]
             [codecloud.vscode.editor-zoom :as editor-zoom]
+            [codecloud.vscode.repl :as repl]
             [codecloud.vscode.settings :as settings]
             [codecloud.vscode.webview :as webview]))
 
@@ -48,11 +49,11 @@
 (def ^:private cloud-preferences
   "Preferences remembered for each cloud file, since each codebase may be
   best seen its own way."
-  [:view-filter :arrangement :color-layers :color-overrides :spread])
+  [:view-filter :arrangement :header-mode :color-layers :color-overrides :spread])
 
 (def ^:private viewer-preferences
   "Preferences remembered for every cloud, as how the viewer likes to work."
-  [:display-mode :totals-open? :tint-clouds?])
+  [:display-mode :totals-open? :tint-clouds? :inspector-minimized?])
 
 (defn- viewer-preference-key [preference]
   (str "codecloud." (name preference)))
@@ -66,6 +67,7 @@
                            :display-mode (or (api/remembered (:global-state host) (viewer-preference-key :display-mode)) :code)
                            :totals-open? (api/remembered (:global-state host) (viewer-preference-key :totals-open?))
                            :tint-clouds? (api/remembered (:global-state host) (viewer-preference-key :tint-clouds?))
+                           :inspector-minimized? (api/remembered (:global-state host) (viewer-preference-key :inspector-minimized?))
                            :cloud-name (workspace/cloud-name (string/replace cloud-file "\\" "/") config/cloud-file-name)
                            :editor-font (api/editor-font (or (api/editor-language-id) "clojure"))}
                           (map (fn [preference]
@@ -238,10 +240,16 @@
     (post! session (protocol/message :host/arrive arrival))
     (swap! state assoc :pending-arrival arrival)))
 
+(defn- repl-context
+  "What the REPL's functions need from a session."
+  [{:keys [root-directory] :as session}]
+  {:repl (:repl session) :root-directory root-directory :post! #(post! session %)})
+
 (defmethod handle-message :view/ready [{:keys [state] :as session} _message]
   (swap! state assoc :ready? true)
   (post! session (init-message session))
   (send-code-colors! session)
+  (repl/announce! (repl-context session))
   (if-let [configuration (:configuration @state)]
     (do (post! session (views-message configuration))
         (when-let [snapshot (:working-snapshot @state)]
@@ -394,6 +402,21 @@
 (defmethod handle-message :view/log [session {:keys [message]}]
   (log! session message))
 
+(defmethod handle-message :view/repl-connect [session message]
+  (repl/connect! (repl-context session) message))
+
+(defmethod handle-message :view/repl-disconnect [session _message]
+  (repl/close! (repl-context session)))
+
+(defmethod handle-message :view/repl-eval [session message]
+  (repl/evaluate! (repl-context session) message))
+
+(defmethod handle-message :view/repl-load-file [session message]
+  (repl/load-file! (repl-context session) message))
+
+(defmethod handle-message :view/repl-interrupt [session _message]
+  (repl/interrupt! (repl-context session)))
+
 ;; Lifetime
 
 (defn- analyzer-for
@@ -429,12 +452,13 @@
       (reset! (:active-session host) nil))))
 
 (defn stop!
-  "Ends a session when its panel closes."
+  "Ends a session when its panel closes, with its REPL connection."
   [{:keys [state disposables] :as session}]
   (swap! state assoc :disposed? true)
   (doseq [[_ timer] (:timers @state)] (js/clearTimeout timer))
   (api/dispose! (:source-watchers @state))
   (api/dispose! @disposables)
+  (repl/close! (repl-context session))
   (unregister! session))
 
 (defn- same-path? [first-path second-path]
@@ -453,6 +477,7 @@
                  :root-directory root-directory
                  :analyzer (analyzer-for host cloud-file root-directory)
                  :state (atom {:ready? false :timers {} :visible? true})
+                 :repl (repl/create)
                  :disposables (atom [])}
         add! (fn [item] (swap! (:disposables session) conj item))
         settle-milliseconds 300]

@@ -3,8 +3,10 @@
   and its definitions, measured with the shared token rules. tree-sitter's
   syntax tree says what a file defines and where, and the braces among
   the tokens say where each body ends, which a macro or an #if can hide
-  from the tree. A header joins its source file's page when the pairing
-  is unique."
+  from the tree. A C++ module's declarations and imports are read from
+  the tokens and blanked for a grammar that predates modules. A header
+  names the source file it sits beside when the pairing is unique, and a
+  module's interface its implementation."
   (:require [clojure.string :as string]
             [codecloud.languages.scanner :as scanner]
             [codecloud.languages.structure :as structure]
@@ -451,24 +453,187 @@
                                           measuring line end-line)])
      :facts {:identifier-counts (identifier-counts merged)}}))
 
+;; C++ modules
+
+(def ^:private module-marks
+  "Text a C++ file holds when a line may declare or import a module,
+  found before lexing settles the question."
+  #"(?m)^\s*(?:export\s+)?(?:module|import)\b")
+
+(defn- module-name
+  "{:name :partition} from the words of a module declaration or import,
+  as geometry.math:vectors, or nil when they name no module. An
+  attribute may follow the name."
+  [words]
+  (let [[name-words other-words] (split-with #(re-matches #"[A-Za-z_][A-Za-z0-9_]*|[.:]" %) words)
+        [module-words partition-words] (split-with #(not= ":" %) name-words)]
+    (when (and (seq name-words) (or (empty? other-words) (= "[" (first other-words))))
+      {:name (apply str module-words)
+       :partition (when (seq partition-words) (apply str (rest partition-words)))})))
+
+(defn- header-unit
+  "[specifier system?] of the header an import names in angle brackets or
+  quotes, or nil."
+  [[first-word :as words]]
+  (cond
+    (= "<" first-word) [(apply str (take-while #(not= ">" %) (rest words))) true]
+    (and first-word (string/starts-with? first-word "\"")) [(scanner/unquoted first-word) false]
+    :else nil))
+
+(defn- statement-end
+  "Index of the token ending, with a semicolon, the statement starting at
+  `start`, or nil when a brace comes first."
+  [tokens start]
+  (loop [index start]
+    (when-let [{:keys [kind text]} (scanner/token-at tokens index)]
+      (cond
+        (string/ends-with? text ";") index
+        (and (= :bracket kind) (contains? #{"{" "}"} text)) nil
+        :else (recur (inc index))))))
+
+(defn- module-statement
+  "The module declaration or import whose line's code starts at token
+  `index`, with export or with module or import, as {:keyword :export?
+  :words :line :start :end}, :words being the texts between the keyword
+  and the semicolon and :start and :end the tokens it spans, or nil."
+  [tokens index]
+  (let [{:keys [text line]} (nth tokens index)
+        previous (scanner/token-at tokens (dec index))
+        exported? (= "export" text)
+        keyword-index (if exported? (inc index) index)
+        keyword-text (:text (scanner/token-at tokens keyword-index))
+        end (when (and (contains? #{"module" "import"} keyword-text)
+                       (or (nil? previous) (< (:line previous) line)))
+              (statement-end tokens keyword-index))
+        words (when end (mapv :text (subvec tokens (inc keyword-index) end)))]
+    (when (and end (if (= "module" keyword-text)
+                     (or (empty? words) (module-name words))
+                     (or (header-unit words) (module-name words))))
+      {:keyword keyword-text :export? exported? :words words :line line :start index :end end})))
+
+(defn- module-statements
+  "Each module declaration and import at file scope among the
+  significant tokens."
+  [tokens]
+  (loop [index 0
+         depth 0
+         statements []]
+    (if-let [{:keys [kind text]} (scanner/token-at tokens index)]
+      (if-let [statement (when (zero? depth) (module-statement tokens index))]
+        (recur (inc (:end statement)) depth (conj statements statement))
+        (recur (inc index)
+               (if (= :bracket kind) (max 0 (+ depth (case text ("{" "(" "[") 1 ("}" ")" "]") -1 0))) depth)
+               statements))
+      statements)))
+
+(defn- module-unit
+  "The module a file's statements declare, as {:name :partition :export?
+  :line}, or nil outside any module."
+  [statements]
+  (some (fn [{:keys [keyword export? words line]}]
+          (when (= "module" keyword)
+            (let [{declared-name :name partition :partition} (module-name words)]
+              (when (seq declared-name)
+                {:name declared-name :partition partition :export? export? :line line}))))
+        statements))
+
+(defn- module-imports
+  "Imports for a module unit's import statements, each a module by name,
+  a partition of the file's own module, or a header unit read through
+  the include resolver, and for an implementation unit, its module's
+  interface."
+  [statements {own-name :name :keys [partition export? line] :as unit}]
+  (let [module-import (fn [specifier import-line]
+                        {:specifier specifier :kind :import :resolver :cpp-module :line import-line :binds []})]
+    (into (if (and unit (not export?) (nil? partition)) [(module-import own-name line)] [])
+          (keep (fn [{:keys [keyword words] statement-line :line}]
+                  (when (= "import" keyword)
+                    (if-let [[header system?] (header-unit words)]
+                      {:specifier header :kind :import :resolver :c-include :system? system? :line statement-line
+                       :binds []}
+                      (let [{imported-name :name imported-partition :partition} (module-name words)
+                            named (if (seq imported-name) imported-name own-name)]
+                        (when (seq named)
+                          (module-import (cond-> named imported-partition (str ":" imported-partition))
+                                         statement-line)))))))
+          statements)))
+
+(defn- export-marks
+  "Indexes of each export keyword outside `statement-indexes`, with the
+  braces of an export block."
+  [tokens statement-indexes]
+  (let [closes (brace-closes tokens)]
+    (into []
+          (comp (filter #(and (= "export" (:text (nth tokens %))) (not (contains? statement-indexes %))))
+                (mapcat (fn [index]
+                          (let [close (when (= "{" (:text (scanner/token-at tokens (inc index))))
+                                        (get closes (inc index)))]
+                            (if close [index (inc index) close] [index])))))
+          (range (count tokens)))))
+
+(defn- blanked-text
+  "`text` with the tokens at `indexes` replaced by spaces, so a grammar
+  without modules reads the code around them in place."
+  [text text-lines tokens indexes]
+  (let [line-starts (vec (reductions + 0 (map #(inc (count %)) text-lines)))
+        spans (sort (map (fn [index]
+                           (let [{:keys [line column] token-text :text} (nth tokens index)
+                                 start (+ (nth line-starts (dec line)) (dec column))]
+                             [start (+ start (count token-text))]))
+                         indexes))]
+    (loop [remaining spans
+           written 0
+           parts []]
+      (if-let [[start end] (first remaining)]
+        (recur (rest remaining) end (conj parts (subs text written start) (apply str (repeat (- end start) " "))))
+        (apply str (conj parts (subs text written)))))))
+
+(defn- module-reading
+  "{:unit :imports :parsed-text} of a C++ file: the module it declares,
+  its module imports, and its text for the grammar, module statements
+  and export keywords blanked. A file without a line that could start a
+  module statement reads as it is."
+  [language text text-lines]
+  (if (and (= :cpp language) (re-find module-marks text))
+    (let [tokens (scanner/significant (scanner/token-stream :cpp text-lines))
+          statements (module-statements tokens)
+          unit (module-unit statements)
+          statement-indexes (into #{} (mapcat (fn [{:keys [start end]}] (range start (inc end)))) statements)]
+      {:unit (some-> unit (dissoc :line))
+       :imports (module-imports statements unit)
+       :parsed-text (blanked-text text text-lines tokens (into statement-indexes (export-marks tokens statement-indexes)))})
+    {:imports [] :parsed-text text}))
+
+(defn grammar-text
+  "The text of a C or C++ file in `language` as the grammar reads it, a
+  C++ module's statements and export keywords blanked."
+  [language text]
+  (:parsed-text (module-reading language text (source/split-lines text))))
+
+;; Reading a file
+
 (defn read-file
-  "Facts of a C or C++ file in `language-id`: its includes, the names it
-  uses, and its definitions with their complection, from the syntax tree
-  `parse-tree` answers queries about, when given."
+  "Facts of a C or C++ file in `language-id`: its includes and module
+  imports, the module it declares, the names it uses, and its
+  definitions with their complection, from the syntax tree `parse-tree`
+  answers queries about, when given."
   [language-id path text {:keys [parse-tree] :as options}]
   (let [normalized-text (source/normalize-text text)
         text-lines (source/split-lines normalized-text)
         language (file-language language-id path text-lines)
-        matches (if parse-tree (parse-tree language normalized-text (get queries language)) [])]
-    (structure/read-structured language path normalized-text options
-                               (comp includes scanner/significant)
-                               (fn [tokens _text-lines measuring]
-                                 (tree-structure matches tokens text-lines measuring)))))
+        {:keys [unit imports parsed-text]} (module-reading language normalized-text text-lines)
+        matches (if parse-tree (parse-tree language parsed-text (get queries language)) [])]
+    (cond-> (structure/read-structured language path normalized-text options
+                                       (fn [tokens] (into (includes (scanner/significant tokens)) imports))
+                                       (fn [tokens _text-lines measuring]
+                                         (tree-structure matches tokens text-lines measuring)))
+      unit (assoc :module unit))))
 
-;; Pages
+;; Companions
 
 (def ^:private source-extensions #{"c" "cc" "cpp" "cxx" "c++"})
 (def ^:private header-extensions #{"h" "hh" "hpp" "hxx" "h++"})
+(def ^:private module-extensions #{"cppm" "ixx" "mpp" "cxxm" "ccm" "c++m"})
 
 (def ^:private program-starts
   "The functions a program starts from."
@@ -482,13 +647,24 @@
     (if (and dot-index (pos? dot-index)) (subs file-name 0 dot-index) file-name)))
 
 (defn- file-role
-  ":source, :header, or :inline for a C or C++ file, by its extension."
+  ":source, :header, :interface, or :inline for a C or C++ file, by its
+  extension."
   [path]
   (let [extension (source/file-extension path)]
     (cond
       (contains? source-extensions extension) :source
       (contains? header-extensions extension) :header
+      (contains? module-extensions extension) :interface
       :else :inline)))
+
+(defn- unit-role
+  "A C or C++ file's role: for a module unit, :interface when it exports
+  its module and :implementation otherwise, else its extension's role."
+  [{:keys [path module]}]
+  (cond
+    (nil? module) (file-role path)
+    (:export? module) :interface
+    :else :implementation))
 
 (defn- in-folder-of
   "Those of `paths` in the same folder as `path`."
@@ -496,10 +672,10 @@
   (filter #(= (source/directory-of %) (source/directory-of path)) paths))
 
 (defn- stem-pairs
-  "Map from a companion's path to the path whose page it joins, among
-  files sharing one stem: the lone source in its folder, else the one
-  source and one header left over anywhere. An inline file follows the
-  header beside it."
+  "Map from a header or inline file's path to the path of its companion,
+  among files sharing one stem: the lone source in its folder, else the
+  one source and one header left over anywhere. An inline file follows
+  the header beside it."
   [paths]
   (let [{sources :source headers :header inlines :inline} (group-by file-role paths)
         beside-source (into {}
@@ -525,19 +701,37 @@
   [{:keys [definitions]}]
   (boolean (some #(contains? program-starts (:name %)) definitions)))
 
-(defn paired-units
-  "File facts with each C or C++ header and inline file on the page of the
-  source file it pairs with, as Board.hpp with Board.cpp, or
-  include/filter.h with src/filter.c when no other filter source exists.
-  A program keeps its own page."
+(defn- module-pairs
+  "Map from each module's primary interface unit to its implementation
+  unit: the only one, or else the only one sharing the interface's stem."
   [file-facts]
-  (let [paths (keep (fn [facts]
-                      (when (and (contains? #{:c :cpp} (:language facts)) (not (program? facts)))
+  (into {}
+        (keep (fn [units]
+                (let [{interfaces true implementations false} (group-by (comp true? :export? :module) units)
+                      interface-path (:path (first interfaces))
+                      candidates (if (= 1 (count implementations))
+                                   implementations
+                                   (filter #(= (stem interface-path) (stem (:path %))) implementations))]
+                  (when (and (= 1 (count interfaces)) (= 1 (count candidates)))
+                    [interface-path (:path (first candidates))]))))
+        (vals (group-by (comp :name :module)
+                        (filter #(and (:module %) (nil? (get-in % [:module :partition]))) file-facts)))))
+
+(defn with-companions
+  "File facts with each C or C++ file's :file-role, and each header,
+  inline file, and module interface naming as its :companion the file
+  whose page it sits beside: Board.hpp beside Board.cpp, include/filter.h
+  beside src/filter.c when no other filter source exists, or a module's
+  interface beside its implementation. A program pairs with no header."
+  [file-facts]
+  (let [c-family? #(contains? #{:c :cpp} (:language %))
+        paths (keep (fn [facts]
+                      (when (and (c-family? facts) (not (:module facts)) (not (program? facts)))
                         (:path facts)))
                     file-facts)
-        unit-of (into {} (mapcat stem-pairs) (vals (group-by stem paths)))]
-    (mapv (fn [facts]
-            (if-let [unit-path (get unit-of (:path facts))]
-              (assoc facts :unit-id unit-path)
-              facts))
+        companion-of (into (module-pairs file-facts) (mapcat stem-pairs) (vals (group-by stem paths)))]
+    (mapv (fn [{:keys [path] :as facts}]
+            (cond-> facts
+              (c-family? facts) (assoc :file-role (unit-role facts))
+              (contains? companion-of path) (assoc :companion (get companion-of path))))
           file-facts)))

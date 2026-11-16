@@ -222,6 +222,13 @@
     [(* 0.5 (- (:width geometry) base-width)) (* -0.5 (- (:height geometry) base-height))]
     [0 0]))
 
+(defn- page-shift
+  "Page-local [x y] from a page's layout anchor to its center: its place
+  in a row of paired pages, which already holds an edited page's corner,
+  or else the shift holding the corner while an edit reshapes the page."
+  [visual]
+  (or (:pair-shift visual) (grown-shift visual)))
+
 (defn- local-to-world
   "World vector of page-local [x y], whose axes follow the camera."
   [[local-x local-y] ^js right ^js up]
@@ -233,7 +240,8 @@
   "First pass of a frame: eases the page's fade and position, places it,
   and measures it on screen. A carried page follows the pointer exactly.
   A page reshaped by an edit keeps its top left corner in place, and once
-  the reshaping ends the page eases back instead of jumping."
+  the reshaping ends, or the page joins or leaves a row, it eases to its
+  new place instead of jumping."
   [page-object {:keys [^js camera ^js forward ^js right ^js up positions offset-of carried-id elapsed motion viewport
                        field-of-view display-mode]}]
   (let [{:keys [id leaving? visual]} page-object
@@ -244,7 +252,7 @@
         layout-position (glide (:layout-position page-object) (get positions id) elapsed motion)
         anchor (or layout-position [0 0 0])
         wanted-offset (offset-of id anchor)
-        local-shift (grown-shift visual)
+        local-shift (page-shift visual)
         previous-shift (:local-shift page-object [0 0])
         settling-offset (if (and (not= local-shift previous-shift) (not (:edited? visual)))
                           (add-vectors (:offset page-object)

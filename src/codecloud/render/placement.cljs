@@ -4,6 +4,7 @@
   :spacing, and :targets."
   (:require [codecloud.presentation.arrangement :as arrangement]
             [codecloud.presentation.layout :as layout]
+            [codecloud.presentation.pairing :as pairing]
             [codecloud.presentation.scene :as scene]
             [codecloud.render.camera :as camera]
             [codecloud.render.folders :as folders]
@@ -27,14 +28,23 @@
 ;; Layout positions
 
 (defn layout-positions
-  "Map of page id to [x y z] before spacing, from the simulation or the
-  wall."
+  "Map of the id of each page the layout places to [x y z] before
+  spacing, from the simulation or the wall."
   [app]
   (let [{:keys [simulation wall-positions]} (:placement @(:frame app))]
     (cond
       simulation (layout/positions simulation)
       wall-positions wall-positions
       :else {})))
+
+(defn- page-positions
+  "`layout-positions` with every page of a row of paired pages at its
+  row's place."
+  [app]
+  (let [positions (layout-positions app)]
+    (into positions
+          (keep (fn [[id root]] (when-let [position (get positions root)] [id position])))
+          (get-in @(:frame app) [:placement :pair-roots]))))
 
 (defn- wall-positions
   "World positions of wall slots on the plane through `center` spanned by
@@ -51,8 +61,9 @@
   "A fresh placement for `arrangement-key` from the shown pages, starting
   where the pages stand so they travel to their new places."
   [app arrangement-key visuals snapshot visible-ids previous-positions changed-arrangement?]
-  (let [edges (scene/layout-links snapshot visible-ids)
-        {:keys [kind slots links options folder-plan order]} (arrangement/layout-request arrangement-key snapshot visuals
+  (let [placed (pairing/layout-visuals visuals)
+        edges (pairing/placed-links (scene/layout-links snapshot visible-ids) visuals)
+        {:keys [kind slots links options folder-plan order]} (arrangement/layout-request arrangement-key snapshot placed
                                                                                          edges scene/layout-radius)]
     (if (= :slots kind)
       {:arrangement arrangement-key
@@ -61,7 +72,8 @@
       (let [restart-alpha 0.9]
         {:arrangement arrangement-key
          :folder-plan folder-plan
-         :simulation (layout/create-simulation (scene/layout-nodes visuals)
+         :pair-roots (pairing/pair-roots visuals)
+         :simulation (layout/create-simulation (scene/layout-nodes placed)
                                                links
                                                previous-positions
                                                (cond-> options
@@ -77,9 +89,10 @@
       (swap! (:frame app) assoc :placement
              (start-placement app arrangement-key visuals snapshot visible-ids
                               (layout-positions app) (and placement changed-arrangement?)))
-      (let [resized (filter (fn [[id visual]]
-                              (not= (get-in visual [:geometry :radius]) (get-in previous-visuals [id :geometry :radius])))
-                            visuals)]
+      (let [previous-placed (pairing/layout-visuals previous-visuals)
+            resized (filter (fn [[id visual]]
+                              (not= (get-in visual [:geometry :radius]) (get-in previous-placed [id :geometry :radius])))
+                            (pairing/layout-visuals visuals))]
         (when (seq resized)
           (if-let [simulation (:simulation placement)]
             (let [resize-alpha 0.2]
@@ -177,24 +190,48 @@
           [placed-for spaced-for] targets-for]
       (when (or layout-moving? (not (identical? placement placed-for)) (not (identical? spacing spaced-for)))
         (swap! (:frame app) assoc
-               :targets (into {} (map (fn [[id raw-position]] [id (to-world app raw-position)])) (layout-positions app))
+               :targets (into {} (map (fn [[id raw-position]] [id (to-world app raw-position)])) (page-positions app))
                :targets-for [placement spacing])))))
 
 (defn targets
-  "Map of page id to where it belongs this frame, in world units."
+  "Map of page id to where the layout puts it this frame, in world units.
+  A page in a row of paired pages stands aside from there by its
+  :pair-shift."
   [app]
   (:targets @(:frame app) {}))
 
-(defn target-of [app id]
+(defn anchor-of
+  "Where the layout puts page `id` this frame."
+  [app id]
   (get (targets app) id))
+
+(defn- row-placer
+  "A function from a page's layout anchor and its page-local shift in a
+  row of paired pages to where the page stands, the shift's axes
+  following the camera as it faces now."
+  [app]
+  (let [{:keys [right up]} (camera/basis app)
+        right-vector (camera/vector-of right)
+        up-vector (camera/vector-of up)]
+    (fn [anchor shift]
+      (if-let [[local-x local-y] shift]
+        (add anchor (add (scale-by local-x right-vector) (scale-by local-y up-vector)))
+        anchor))))
+
+(defn target-of
+  "Where page `id` belongs this frame, in world units."
+  [app id]
+  (when-let [anchor (anchor-of app id)]
+    ((row-placer app) anchor (get-in @(:frame app) [:visuals id :pair-shift]))))
 
 (defn extents
   "Every shown page as {:position :width :height} where it belongs."
   [app]
-  (let [{:keys [visuals]} @(:frame app)]
-    (keep (fn [[id position]]
-            (when-let [{:keys [geometry]} (get visuals id)]
-              {:position position :width (:width geometry) :height (:height geometry)}))
+  (let [{:keys [visuals]} @(:frame app)
+        place (row-placer app)]
+    (keep (fn [[id anchor]]
+            (when-let [{:keys [geometry pair-shift]} (get visuals id)]
+              {:position (place anchor pair-shift) :width (:width geometry) :height (:height geometry)}))
           (targets app))))
 
 (defn- camera-box
@@ -231,9 +268,11 @@
   "Center and radius of a folder's pages where they belong."
   [app directory]
   (let [{:keys [directory-visuals visuals]} @(:frame app)
+        place (row-placer app)
         members (keep (fn [id]
-                        (when-let [position (target-of app id)]
-                          {:position position :radius (scene/layout-radius (get-in visuals [id :geometry]))}))
+                        (when-let [anchor (anchor-of app id)]
+                          (let [{:keys [geometry pair-shift]} (get visuals id)]
+                            {:position (place anchor pair-shift) :radius (scene/layout-radius geometry)})))
                       (get-in directory-visuals [directory :member-ids]))]
     (when (seq members)
       (folders/folder-extent members))))

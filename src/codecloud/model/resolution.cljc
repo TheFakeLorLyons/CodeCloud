@@ -103,8 +103,9 @@
 
 (defn project-index
   "What resolvers need about the cloud: :paths, :unit-of, :language-of,
-  :units, :definition-names of each unit, :python-roots, :script-configs,
-  :packages, :include-folders, and :paths-by-file-name."
+  :units, :definition-names of each unit, :companion-of each header,
+  :module-paths of C++ module interfaces and partitions, :python-roots,
+  :script-configs, :packages, :include-folders, and :paths-by-file-name."
   ([file-facts manifests] (project-index file-facts manifests {}))
   ([file-facts manifests {:keys [include-paths]}]
    (let [paths (into #{} (map :path) file-facts)]
@@ -115,6 +116,15 @@
       :definition-names (into {}
                               (map (fn [[unit facts-list]] [unit (into [] (comp (mapcat :definitions) (map :name)) facts-list)]))
                               (group-by graph/node-id file-facts))
+      :companion-of (into {} (keep (fn [facts] (when-let [companion (:companion facts)] [(graph/node-id facts) companion])))
+                          file-facts)
+      :module-paths (into {}
+                          (keep (fn [{:keys [path module]}]
+                                  (let [{module-name :name :keys [partition export?]} module]
+                                    (cond
+                                      partition [(str module-name ":" partition) path]
+                                      export? [module-name path]))))
+                          file-facts)
       :python-roots (python-roots paths manifests)
       :script-configs (script-configs manifests)
       :packages (packages manifests)
@@ -323,6 +333,7 @@
       :clojure-namespace (when (contains? (:units index) specifier) [{:unit specifier}])
       :java-class (found-path (java-class-target index specifier))
       :c-include (found-path (include-target index path import))
+      :cpp-module (found-path (get (:module-paths index) specifier))
       nil)))
 
 ;; Requirements
@@ -356,24 +367,31 @@
     (and (> (count segments) 1)
          (or (string/starts-with? own "~") (= own (peek (pop segments)))))))
 
-(defn- included-binds
-  "One bind holding the uses of `unit`'s definitions among the names an
-  including file writes, a qualified name matched by its last part."
+(defn- included-uses
+  "Uses of `unit`'s definitions among the names an including file writes,
+  a qualified name matched by its last part."
   [{:keys [definition-names]} unit identifier-counts]
-  (let [uses (into {}
-                   (keep (fn [definition-name]
-                           (let [segments (string/split definition-name #"::")
-                                 use-count (get identifier-counts (peek segments) 0)]
-                             (when (and (pos? use-count) (not (constructor-name? segments)))
-                               [definition-name use-count]))))
-                   (distinct (get definition-names unit)))]
+  (into {}
+        (keep (fn [definition-name]
+                (let [segments (string/split definition-name #"::")
+                      use-count (get identifier-counts (peek segments) 0)]
+                  (when (and (pos? use-count) (not (constructor-name? segments)))
+                    [definition-name use-count]))))
+        (distinct (get definition-names unit))))
+
+(defn- included-binds
+  "One bind holding the uses of `unit`'s definitions, or none when the
+  including file uses none."
+  [index unit identifier-counts]
+  (let [uses (included-uses index unit identifier-counts)]
     (if (seq uses) [{:local nil :name nil :uses uses}] [])))
 
 (defn- import-requirements
   "Requirements for one import: one per target it reaches, or an external
   one when it reaches none and its adapter keeps misses. A file that
-  counts the names it writes, as C does, binds what its targets define."
-  [{:keys [unit-of language-of] :as index} path identifier-counts import]
+  counts the names it writes, as C does, binds what its targets define,
+  except the header beside it, whose uses stay within the pair."
+  [{:keys [unit-of language-of companion-of] :as index} path identifier-counts import]
   (let [source-language (get language-of path)
         found (remove #(= path (:path %)) (targets index path import))]
     (if (seq found)
@@ -388,9 +406,10 @@
                  :platform (loading-platform kind source-language target-language)
                  :specifier (:specifier import)
                  :line (:line import)
-                 :binds (if identifier-counts
-                          (included-binds index target-unit identifier-counts)
-                          (binds-for import target))}))
+                 :binds (cond
+                          (nil? identifier-counts) (binds-for import target)
+                          (= (get unit-of path) (get companion-of target-unit)) []
+                          :else (included-binds index target-unit identifier-counts))}))
             found)
       (if (:drop-unresolved? import)
         []
@@ -416,6 +435,23 @@
           {}
           requirements))
 
+(defn- companion-references
+  "{companion {definition-name use-count}} for the source files beside
+  the headers a file includes, whose definitions it uses through the
+  headers' declarations, as a caller of Board::read uses Board.cpp through
+  Board.hpp."
+  [{:keys [companion-of unit-of] :as index} path identifier-counts requirements]
+  (let [own-unit (get unit-of path)]
+    (into {}
+          (keep (fn [companion]
+                  (let [uses (included-uses index companion identifier-counts)]
+                    (when (seq uses) [companion uses]))))
+          (distinct (keep (fn [{:keys [target external?]}]
+                            (let [companion (get companion-of target)]
+                              (when (and companion (not external?) (not= own-unit companion))
+                                companion)))
+                          requirements)))))
+
 (defn- resolve-file
   "`facts` with imports resolved into requirements and
   :resolved-references. A Clojure string require that reaches the cloud
@@ -430,7 +466,10 @@
                                    (:replaces-requirement import))))
                          resolved)
           added (into [] (mapcat second) resolved)
-          references (requirement-references added)]
+          references (merge-with (partial merge-with +)
+                                 (requirement-references added)
+                                 (when identifier-counts
+                                   (companion-references index path identifier-counts added)))]
       (cond-> (assoc facts :requirements (into (filterv #(not (and (:js-module? %) (contains? replaced (:target %))))
                                                         (:requirements facts))
                                                added))

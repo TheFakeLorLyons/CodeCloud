@@ -53,11 +53,12 @@
    :c {:read (partial c-family/read-file :c)}
    :cpp {:read (partial c-family/read-file :cpp)}})
 
-(defn assign-units
-  "File facts with the units only the whole set of files decides, such as
-  a C header joining its source file's page."
+(defn with-companions
+  "File facts with what the C family adapter settles across files: each
+  file's role, and the file each header or module interface sits
+  beside."
   [file-facts]
-  (c-family/paired-units file-facts))
+  (c-family/with-companions file-facts))
 
 (defn- first-line [text]
   (if-let [newline-index (string/index-of text "\n")]
