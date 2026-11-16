@@ -4,7 +4,7 @@
 	"name": "Night Test",
 	"include": "./base.json",
 	"colors": {
-		"editor.background": "#011627", // darker than the base
+		"editor.background": "#012627", // darker than the base
 	},
 	"tokenColors": [
 		{

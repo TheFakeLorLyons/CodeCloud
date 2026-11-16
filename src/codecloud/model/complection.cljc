@@ -49,9 +49,7 @@
              default-thresholds
              (select-keys allowed (keys default-thresholds))))
 
-(defn- core-name
-  "A name without a clojure.core or cljs.core qualifier."
-  [qualified-name]
+(defn- core-name [qualified-name]
   (string/replace qualified-name #"^(?:clojure|cljs)\.core/" ""))
 
 (defn- qualified-name
@@ -109,9 +107,7 @@
                       (when (not= qualified written) (get by-symbol qualified))
                       (get by-name (name symbol-value))))))
 
-(defn- occurrences
-  "How many times `pattern` appears in `text` without overlapping."
-  [text pattern]
+(defn- occurrences [text pattern]
   (loop [from 0
          found 0]
     (if-let [index (when (seq pattern) (string/index-of text pattern from))]
@@ -153,9 +149,7 @@
               :else (step accumulated item depth)))]
     (visit initial form 0)))
 
-(defn span-text
-  "Text of the one-based lines `first-line` through `last-line`."
-  [text-lines first-line last-line]
+(defn span-text [text-lines first-line last-line]
   (let [start (max 0 (dec (or first-line 1)))
         end (min (count text-lines) (or last-line first-line 1))]
     (if (< start end)
@@ -188,9 +182,7 @@
                   thresholds)
        (* points-per-flag (reduce + 0 (vals (:flags measurements)))))))
 
-(defn rounded
-  "A score rounded to hundredths."
-  [value]
+(defn rounded [value]
   (/ (Math/round (* 100.0 value)) 100.0))
 
 (defn excesses

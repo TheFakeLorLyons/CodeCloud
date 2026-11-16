@@ -1,24 +1,33 @@
 (ns codecloud.vscode.extension
-  "Entry point of the VS Code extension: the cloud editor for *.cld files
-  and CodeCloud's commands."
+  "Entry point of the VS Code extension, registering the cloud editor for
+  *.cld files and CodeCloud's commands."
   (:require ["fs" :as fs]
             ["path" :as path]
             [clojure.string :as string]
             [codecloud.io.task :as task]
             [codecloud.model.selection :as selection]
             [codecloud.presentation.visibility :as visibility]
+            [codecloud.vscode.agent-edits :as agent-edits]
+            [codecloud.vscode.agents :as agents]
             [codecloud.vscode.api :as api]
+            [codecloud.vscode.assistant-host :as assistant-host]
+            [codecloud.vscode.cloud-context :as cloud-context]
             [codecloud.vscode.clouds :as clouds]
+            [codecloud.vscode.editor-evaluation :as editor-evaluation]
             [codecloud.vscode.editor-zoom :as editor-zoom]
-            [codecloud.vscode.session :as session]))
+            [codecloud.vscode.session :as session]
+            [codecloud.vscode.session.editing-messages :as editing-messages]
+            [codecloud.vscode.session.repl-messages :as repl-messages]))
 
 (defonce ^:private running-host (atom nil))
 
 (defn- create-host [^js context]
   (let [channel (api/output-channel "CodeCloud")]
     {:extension-uri (.-extensionUri context)
+     :version (some-> context .-extension .-packageJSON .-version)
      :global-state (.-globalState context)
      :workspace-state (.-workspaceState context)
+     :secrets (.-secrets context)
      :channel channel
      :log! (fn [text] (api/append-line! channel (str (.toLocaleTimeString (js/Date.) "en-US") "  " text)))
      :index (clouds/create-index!)
@@ -29,6 +38,15 @@
      :zoom-steps (atom 0)
      :git (atom nil)
      :git-executable (atom "git")
+     :agents (agents/create)
+     :agent-summary (atom {:serving? false :url nil :agents [] :problem nil})
+     :presence-summary (atom {:agents [] :pins []})
+     :assistant-settings (assistant-host/create (.-globalState context))
+     :agent-edits (agent-edits/create)
+     :carets (atom {:latest nil :by-file {}})
+     :background (cloud-context/create)
+     :cloud-context cloud-context/current
+     :editor-results (editor-evaluation/create)
      :deliver-arrival! session/deliver-arrival!}))
 
 (defn- all-sessions [host]
@@ -107,13 +125,55 @@
                               (some-> (argument-path clicked) vector)))]
     (clouds/after-first-search (:index host) #(apply-explorer-filter! host chosen-paths change-filter))))
 
+(defn- session-showing [host cloud-file]
+  (let [candidates (get @(:sessions host) (clouds/comparison-path cloud-file))
+        active @(:active-session host)]
+    (if (contains? candidates active) active (first candidates))))
+
+(defn- evaluate-in-editor!
+  "Evaluates `scope` from the active editor through the REPL of the cloud
+  holding its file, offering to open that cloud when it is closed."
+  [host scope]
+  (let [{:keys [notice path] :as request} (editor-evaluation/request scope)
+        cloud-file (when path (clouds/cloud-file-for (:index host) path))]
+    (cond
+      notice (api/info-message notice)
+      (nil? cloud-file) (api/info-message "This file lies in no cloud, so CodeCloud has no REPL for it.")
+      :else (if-let [open-session (session-showing host cloud-file)]
+              (repl-messages/evaluate-from-editor! open-session (editor-evaluation/remember! (:editor-results host) request))
+              (task/then (api/info-message "Open this file's cloud to evaluate through its REPL." "Open Cloud")
+                         (fn [choice]
+                           (when choice (clouds/open-cloud! host cloud-file nil nil))))))))
+
+(defn- interrupt-evaluations!
+  "Stops the evaluations of the REPL tabs of the open cloud holding the
+  active editor's file."
+  [host]
+  (some->> (api/active-editor-view)
+           :path
+           (clouds/cloud-file-for (:index host))
+           (session-showing host)
+           repl-messages/interrupt-evaluations!))
+
 (defn- commands [host]
   {"codecloud.enter" (fn [& _] (editor-zoom/enter-cloud! host 1))
+   "codecloud.evaluateForm" (fn [& _] (evaluate-in-editor! host :form))
+   "codecloud.evaluateEnclosingForm" (fn [& _] (evaluate-in-editor! host :enclosing))
+   "codecloud.evaluateTopLevelForm" (fn [& _] (evaluate-in-editor! host :top-level))
+   "codecloud.evaluateToCaret" (fn [& _] (evaluate-in-editor! host :to-caret))
+   "codecloud.evaluateTopLevelFormToCaret" (fn [& _] (evaluate-in-editor! host :top-level-to-caret))
+   "codecloud.evaluateFileToCaret" (fn [& _] (evaluate-in-editor! host :file-to-caret))
+   "codecloud.loadFile" (fn [& _] (evaluate-in-editor! host :file))
+   "codecloud.loadFileWithRequires" (fn [& _] (evaluate-in-editor! host :file-with-requires))
+   "codecloud.interruptEvaluations" (fn [& _] (interrupt-evaluations! host))
+   "codecloud.clearInlineResults" (fn [& _] (editor-evaluation/clear! (:editor-results host)))
    "codecloud.zoomOut" (fn [& _] (editor-zoom/zoom-out! host))
    "codecloud.zoomIn" (fn [& _] (editor-zoom/zoom-in! host))
    "codecloud.createCloudFile" (fn [& [uri]] (create-cloud-file! host uri))
    "codecloud.editCloudFile" (fn [& [uri]] (edit-cloud-file! host uri))
    "codecloud.refresh" (fn [& _] (refresh! host))
+   "codecloud.connectAgent" (fn [& _] (agents/connect-agent! host))
+   "codecloud.chooseAssistantModel" (fn [& _] (assistant-host/choose-model! host))
    "codecloud.showOnlyInCloud" (fn [& [clicked selected]]
                                  (filter-from-explorer! host clicked selected (fn [_current patterns] (visibility/show-only patterns))))
    "codecloud.hideInCloud" (fn [& [clicked selected]]
@@ -125,10 +185,8 @@
                                                             visibility/no-filter)
                                              (fn [_] (session/resend-init! open-session)))))})
 
-(defn- with-time-limit
-  "Resolves like `promise`, or to nil after `milliseconds`."
-  [promise milliseconds]
-  (js/Promise.race #js [promise (js/Promise. (fn [resolve _] (js/setTimeout #(resolve nil) milliseconds)))]))
+(defn- with-time-limit [pending milliseconds]
+  (js/Promise.race #js [pending (js/Promise. (fn [resolve _] (js/setTimeout #(resolve nil) milliseconds)))]))
 
 (defn activate
   "Called when CodeCloud is first needed. Finds the git extension's git
@@ -158,12 +216,24 @@
                                                          (fn [document panel] (session/start! host document panel))))
                      (doseq [[command-id handler] (commands host)]
                        (push! (api/register-command! command-id handler)))
+                     (doseq [item (agents/activate! host)]
+                       (push! item))
+                     (push! (agents/watch-carets! host))
+                     (doseq [item (agent-edits/activate! host (fn [file-path]
+                                                                (some #(editing-messages/applying-edit? % file-path) (all-sessions host))))]
+                       (push! item))
+                     (doseq [item (editor-evaluation/activate! (:editor-results host))]
+                       (push! item))
                      ((:log! host) (str "CodeCloud is ready; git is " @(:git-executable host) "."))
                      nil)))))
 
-(defn deactivate []
+(defn deactivate
+  "Ends every session and stops the agent hub; VS Code waits for the
+  returned promise."
+  []
   (when-let [host @running-host]
     (doseq [open-session (all-sessions host)] (session/stop! open-session))
-    (reset! running-host nil)))
+    (reset! running-host nil)
+    (agents/stop! host)))
 
 (set! (.-exports js/module) #js {:activate activate :deactivate deactivate})

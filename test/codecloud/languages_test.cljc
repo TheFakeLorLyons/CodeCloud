@@ -6,6 +6,7 @@
             [codecloud.languages.catalog :as catalog]
             [codecloud.languages.lexer :as lexer]
             [codecloud.languages.lexicons :as lexicons]
+            [codecloud.languages.structure :as structure]
             [codecloud.model.config :as config]
             [codecloud.model.facts :as facts]
             [codecloud.model.graph-test :as graph-test]
@@ -191,6 +192,15 @@
       (is (= [[:special "class"] [:definition "Stream"] [:text ":"]]
              (line-tokens stream (line-starting stream "class Stream"))))
       (is (= [:special :special :definition :bracket :text :bracket :text] (line-kinds stream 18))))))
+
+(deftest nesting-depths-count-what-is-open
+  (let [token (fn [kind text] {:kind kind :text text})]
+    (testing "a closer stands at its opener's depth, and a stray closer at the top"
+      (is (= [0 1 1 0 0 0] (structure/bracket-depths (mapv #(token :bracket %) ["(" "[" "]" ")" ")" "{"])))))
+    (testing "any pair of predicates can name the openers and closers, as shell's words do"
+      (is (= [0 0 1 1 1 1 0]
+             (structure/depths (comp #{"do" "then"} :text) (comp #{"done" "fi"} :text)
+                               (mapv #(token :special %) ["for" "do" "echo" "if" "then" "fi" "done"])))))))
 
 (deftest finds-definitions-and-complection
   (let [{expected-definitions :definitions :keys [hotspots inbound forms]} (fixtures/expected "polyglot.edn")

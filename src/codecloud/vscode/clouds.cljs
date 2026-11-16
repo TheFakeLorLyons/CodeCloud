@@ -51,9 +51,7 @@
   [index action]
   (task/then (:ready index) (fn [_] (action))))
 
-(defn cloud-file-for
-  "The cloud file covering `file-path`, or nil."
-  [index file-path]
+(defn cloud-file-for [index file-path]
   (let [by-comparison (into {} (map (juxt comparison-path identity)) @(:paths index))]
     (some-> (workspace/nearest-cloud-file (keys by-comparison) (comparison-path file-path) config/cloud-file-name)
             by-comparison)))
@@ -65,10 +63,7 @@
       (task/then (constantly true))
       (task/recover (constantly false))))
 
-(defn- project-directories
-  "Resolves to those of `directories` that hold a project file such as
-  deps.edn."
-  [directories]
+(defn- project-directories [directories]
   (task/then (task/all (for [directory directories]
                          (task/then (task/all (for [marker workspace/project-files]
                                                 (file-exists? (str directory "/" marker))))
@@ -98,10 +93,7 @@
 
 ;; Opening a cloud
 
-(defn- relative-arrival
-  "An arrival at an absolute file path, made relative to the cloud's
-  folder, or nil when the file lies outside it."
-  [cloud-file {:keys [file-path] :as arrival}]
+(defn- relative-arrival [cloud-file {:keys [file-path] :as arrival}]
   (when (and arrival file-path)
     (let [relative (forward-slashes (path/relative (path/dirname cloud-file) file-path))]
       (when-not (or (string/starts-with? relative "..") (path/isAbsolute relative))
@@ -160,7 +152,7 @@
                                home arrival view-column))))
 
 (defn choose-cloud!
-  "Opens a cloud when no editor says which: the only one, one picked from
+  "Opens a cloud when no editor says which, the only one, one picked from
   several, or a new one in a workspace folder."
   [{:keys [index] :as host} view-column]
   (let [cloud-files @(:paths index)]

@@ -200,7 +200,7 @@
 
 (deftest cloud-file-layers-join-the-built-in-ones
   (let [registry (layers/registry [{:key :cloud/tests :label "Tests" :patterns ["test/"] :colors ["pink"]}
-                                   {:key :cloud/long :label "Long" :metric :lines :colors ["green" "#cc3311"]}])
+                                   {:key :cloud/long :label "Long" :metric :lines :colors ["green" "#cc3322"]}])
         contexts (layers/prepare registry app-snapshot)
         colors (layers/page-colors registry contexts #{:cloud/tests} app-snapshot)
         heat (layers/page-colors registry contexts #{:cloud/long} app-snapshot)]
@@ -208,12 +208,30 @@
     (is (same-colors? (get layers/named-colors "pink") (get colors "app.model.user-test")))
     (is (nil? (get colors "app.model.user")))
     (is (same-color? (get-in layers/named-colors ["green" :day]) (:day (get heat "app.model.order"))))
-    (is (same-color? (:day (layers/color-named "#cc3311")) (:day (get heat "app.core")))))
+    (is (same-color? (:day (layers/color-named "#cc3322")) (:day (get heat "app.core")))))
   (testing "a hex color brightens by night and unknown names give nothing"
     (is (<= 0.66 (first (:night (layers/color-named "#202060")))))
     (is (nil? (layers/color-named "chartreuse"))))
   (is (= config/color-names (set (keys layers/named-colors)))
       "the colors a cloud file may name are the ones layers can draw"))
+
+(deftest flag-layers-shade-by-matches
+  (let [flagged (snapshot-of (assoc (page "a.calls" "src/a/calls.clj") :flag-counts {"database" 6})
+                             (assoc (page "a.once" "src/a/once.clj") :flag-counts {"database" 1})
+                             (assoc (page "a.quiet" "src/a/quiet.clj") :flag-counts {"todo" 2})
+                             (page "a.none" "src/a/none.clj"))
+        registry (layers/registry [{:key :cloud/database :label "Database" :metric [:flag "database"] :colors ["gray" "purple"]}])
+        contexts (layers/prepare registry flagged)
+        heat (layers/page-colors registry contexts #{:cloud/database} flagged)]
+    (is (same-color? (get-in layers/named-colors ["purple" :day]) (:day (get heat "a.calls")))
+        "the page with the most matches takes the high color")
+    (is (same-color? (get-in layers/named-colors ["gray" :day]) (:day (get heat "a.quiet")))
+        "a page whose other flags match counts none of this one")
+    (is (same-color? (color/mix-oklch (get-in layers/named-colors ["gray" :day]) (get-in layers/named-colors ["purple" :day])
+                                      (/ (Math/log 2) (Math/log 7)))
+                     (:day (get heat "a.once")))
+        "matches shade along the logarithm, so one of six shows")
+    (is (= "6" ((:describe (last registry)) (:cloud/database contexts) (get-in flagged [:namespaces "a.calls"]))))))
 
 (deftest any-layer-map-extends-the-registry
   (let [even-lines {:key :even-lines

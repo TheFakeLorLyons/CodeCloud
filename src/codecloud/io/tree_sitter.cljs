@@ -1,6 +1,6 @@
 (ns codecloud.io.tree-sitter
   "Syntax trees of C and C++ from tree-sitter's WebAssembly grammars,
-  given back as plain data: the captures of a query, one map per match.
+  given back as plain data, the captures of a query as one map per match.
   The runtime and the grammars load once per process, when a cloud first
   holds such files."
   (:require ["path" :as path]
@@ -32,9 +32,7 @@
              :end-column (inc (.-column end))}
       (string/ends-with? (.-name capture) "name") (assoc :text (.-text node)))))
 
-(defn- match-data
-  "A match as a map from each capture's name, as a keyword, to its data."
-  [^js match]
+(defn- match-data [^js match]
   (into {}
         (map (fn [^js capture] [(keyword (.-name capture)) (capture-data capture)]))
         (.-captures match)))
@@ -76,6 +74,6 @@
                                                                  (fn [language] [grammar-id language])))
                                                     grammar-files))))
                         (task/then (fn [languages] {:parse (parse-function (into {} languages))}))
-                        (task/recover (fn [error] {:error (or (.-message error) (str error))})))]
+                        (task/recover (fn [error] {:error (task/error-text error)})))]
         (swap! loading assoc directory started)
         started)))

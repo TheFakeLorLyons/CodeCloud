@@ -7,17 +7,25 @@
             [codecloud.model.restriction :as restriction]
             [codecloud.model.source :as source]
             [codecloud.presentation.arrangement :as arrangement]
+            [codecloud.presentation.assistant-state :as assistant-state]
             [codecloud.presentation.code-colors :as code-colors]
             [codecloud.presentation.definitions :as definitions]
-            [codecloud.presentation.editing :as editing]
-            [codecloud.presentation.forms :as forms]
+            [codecloud.presentation.editing-state :as editing-state]
+            [codecloud.presentation.environments :as environments]
+            [codecloud.presentation.handling :refer [changed send-effect unchanged with-notice]]
             [codecloud.presentation.layers :as layers]
             [codecloud.presentation.page :as page]
             [codecloud.presentation.pairing :as pairing]
+            [codecloud.presentation.presence-state :as presence-state]
+            [codecloud.presentation.repl-state :as repl-state]
             [codecloud.presentation.scene :as scene]
-            [codecloud.presentation.sky :as sky]
-            [codecloud.presentation.visibility :as visibility]
-            [codecloud.protocol :as protocol]))
+            [codecloud.presentation.visibility :as visibility]))
+
+(def dock-defaults
+  "The dock's layout before the viewer changes it, its width in pixels,
+  each pane's share of its height, and the panes minimized to their
+  headers."
+  {:width 360 :weights {} :minimized #{}})
 
 (def initial-state
   {:snapshot nil
@@ -31,7 +39,8 @@
    :focused-id nil
    :lifted-folder nil
    :hovered-id nil
-   :sky-mode :auto
+   :sky-mode environments/default-id
+   :spaces []
    :theme-kind :dark
    :display-mode :code
    :arrangement :folders
@@ -52,6 +61,7 @@
    :arrange-open? false
    :totals-open? false
    :inspector-minimized? false
+   :dock dock-defaults
    :named-views {}
    :view-filter visibility/no-filter
    :views-open? false
@@ -66,6 +76,7 @@
    :requested-sources #{}
    :arrival nil
    :editing nil
+   :chord nil
    :buffers {}
    :dirty-paths #{}
    :settings {}
@@ -73,41 +84,19 @@
    :editor-colors nil
    :editor-colors-read? false
    :cloud-name nil
-   :repl {:open? false
-          :status :disconnected
-          :message nil
-          :port nil
-          :ns nil
-          :log []
-          :entries-made 0
-          :history []
-          :requests-made 0
-          :pending {}}
-   :inline-results {}})
+   :repl repl-state/initial
+   :inline-results {}
+   :agents {:serving? false :url nil :agents [] :problem nil}
+   :presence presence-state/initial
+   :assistant assistant-state/initial})
 
-(defn- unchanged [state] {:state state :effects []})
-
-(defn- changed [state & effects] {:state state :effects (vec (remove nil? effects))})
-
-(defn- send-effect [message-type fields]
-  [:send (protocol/message message-type fields)])
-
-(defn- remember
-  "The effect saving `value` as the viewer's `preference`."
-  [preference value]
+(defn- remember [preference value]
   (send-effect :view/save-preference {:key preference :value value}))
-
-(defn- with-notice [state notice]
-  (let [kept-notices 4]
-    (update state :notices #(vec (take-last kept-notices (conj (vec %) notice))))))
 
 ;; Handler shapes. A handler takes the state and an event's arguments
 ;; and returns {:state :effects}.
 
-(defn- quietly
-  "A handler applying `update-state` to the state and the event's
-  arguments, with no effects."
-  [update-state]
+(defn- quietly [update-state]
   (fn [state & arguments]
     (unchanged (apply update-state state arguments))))
 
@@ -119,17 +108,47 @@
     (let [value (apply next-value state arguments)]
       (changed (assoc-in state path value) (remember preference value)))))
 
-(defn- remembered-toggle
-  "A handler flipping the switch at `path` and remembering it as
-  `preference`."
-  [preference path]
+(defn- remembered-toggle [preference path]
   (remembered preference path #(not (get-in % path))))
 
-(defn- panel-toggle
-  "A handler opening or closing the panel at `open-key`, closing the panel
-  at `other-key` and any menu."
-  [open-key other-key]
-  (quietly #(-> % (update open-key not) (assoc other-key false :menu nil))))
+(def ^:private side-pane-paths
+  "Where the state says whether each pane of the dock on the right side
+  of the view shows."
+  {:views [:views-open?]
+   :arrange [:arrange-open?]
+   :coworkers [:presence :pane-open?]
+   :assistant [:assistant :open?]})
+
+(defn- with-side-pane
+  "The state showing side pane `pane` when `open?`, beside any other pane
+  open in the dock, and expanded, with any menu closed."
+  [state pane open?]
+  (cond-> (-> state (assoc :menu nil) (assoc-in (side-pane-paths pane) open?))
+    open? (update-in [:dock :minimized] disj pane)))
+
+(defn- side-pane-toggle [pane]
+  (fn [state]
+    (let [shown (with-side-pane state pane (not (get-in state (side-pane-paths pane))))]
+      (changed shown (remember :dock (:dock shown))))))
+
+(defn- dock-layout
+  "`layout` read back as the dock's {:width :weights :minimized}, a part
+  that does not read as such taking its default."
+  [layout]
+  (let [{:keys [width weights minimized]} (when (map? layout) layout)
+        narrowest 260
+        widest 900]
+    {:width (if (number? width) (max narrowest (min widest width)) (:width dock-defaults))
+     :weights (into {} (filter (fn [[pane weight]] (and (keyword? pane) (number? weight) (pos? weight)))) (when (map? weights) weights))
+     :minimized (into #{} (filter keyword?) (when (coll? minimized) minimized))}))
+
+(defn- with-dock
+  "A handler changing the dock's layout with `change`, of the layout and
+  the event's arguments, and remembering it."
+  [change]
+  (fn [state & arguments]
+    (let [layout (dock-layout (apply change (:dock state) arguments))]
+      (changed (assoc state :dock layout) (remember :dock layout)))))
 
 (defn awaiting-snapshot?
   "True while the view waits for the snapshot it asked for."
@@ -180,9 +199,7 @@
        (send-effect :view/request-sources {:snapshot-id (:id snapshot) :namespaces wanted})]
       [state nil])))
 
-(defn- folder-shown?
-  "True when some shown namespace lives in `directory`."
-  [state shown-ids directory]
+(defn- folder-shown? [state shown-ids directory]
   (some #(= directory (page/directory (get-in state [:snapshot :namespaces %]))) shown-ids))
 
 (defn- settle-lifts
@@ -211,9 +228,7 @@
             (remember :view-filter view-filter)
             (cond-> lift-effects refit? (conj [:refit]))))))
 
-(defn- set-down-everything
-  "[state effects] with nothing lifted."
-  [state]
+(defn- set-down-everything [state]
   (let [{:keys [focused-id lifted-folder]} state]
     [(assoc state :focused-id nil :lifted-folder nil)
      (cond-> []
@@ -246,24 +261,25 @@
 ;; Color layers
 
 (defn enabled-layers
-  "Keys of the color layers turned on: the viewer's choice, or the
+  "Keys of the color layers turned on, as the viewer chose them, or the
   snapshot's defaults while :color-layers is nil."
   [{:keys [color-layers snapshot layer-registry]}]
   (let [offered (set (map :key layer-registry))]
     (into #{} (filter offered) (or color-layers (layers/default-keys snapshot)))))
 
-(defn colored-by-default?
-  "True while the layers turned on are the defaults for the snapshot."
-  [{:keys [active-layers default-layers]}]
+(defn colored-by-default? [{:keys [active-layers default-layers]}]
   (= active-layers default-layers))
 
 (defn shown-code-colors
-  "The code colors pages show: the editor theme's while the switch is on
-  and the host could read them, CodeCloud's own otherwise."
+  "The code colors pages show, the editor theme's while the switch is on
+  and the host could read them, and CodeCloud's own otherwise."
   [{:keys [settings editor-colors]}]
   (if (and (:editor-colors? settings) editor-colors)
     editor-colors
     code-colors/own))
+
+(defn shown-environment [{:keys [sky-mode spaces]}]
+  (environments/environment-of sky-mode spaces))
 
 (defn- recolored
   "The state with every page's color blended again, preparing each layer
@@ -283,10 +299,9 @@
       colored)))
 
 (defn- with-visibility
-  "The state with the shown pages worked out again from the snapshot, the
-  named views, the filter, and the header mode, then measured among
-  themselves and colored. Hidden headers fold into their partners.
-  Editing stops once its page leaves the cloud."
+  "The state with the shown pages worked out again from the snapshot,
+  views, filter, and header mode, then measured and colored. Editing
+  stops once its page leaves the cloud."
   [{:keys [snapshot named-views view-filter header-mode] :as state}]
   (if snapshot
     (let [folded (if (= :hidden header-mode) (pairing/folding snapshot) {})
@@ -309,9 +324,7 @@
                                   (changed shown [:snapshot-shown (:id snapshot)]))]
     {:state state :effects (into lift-effects effects)}))
 
-(defn- select-snapshot
-  "Asks for a snapshot, showing it at once when the view already has it."
-  [state snapshot-id]
+(defn- select-snapshot [state snapshot-id]
   (let [state (assoc state :requested-snapshot-id snapshot-id)]
     (cond
       (= snapshot-id (get-in state [:snapshot :id])) (unchanged state)
@@ -328,9 +341,7 @@
 
 ;; Inline results
 
-(defn- without-results-on
-  "The state without inline results on the file at `path`."
-  [state path]
+(defn- without-results-on [state path]
   (update state :inline-results #(into {} (remove (fn [[[result-path] _result]] (= path result-path))) %)))
 
 (defn- results-still-matching
@@ -347,21 +358,24 @@
 
 (defn- take-init
   "The state with the settings and preferences the host sends first."
-  [state {:keys [settings theme-kind sky-mode cloud-name editor-font display-mode view-filter
+  [state {:keys [settings theme-kind sky-mode spaces cloud-name editor-font display-mode view-filter
                  arrangement header-mode color-layers color-overrides spread totals-open? tint-clouds?
-                 inspector-minimized?]}]
+                 inspector-minimized? repl-geometry dock]}]
   (let [chosen-layers (when (sequential? color-layers) (vec (filter keyword? color-layers)))
+        described-spaces (if (sequential? spaces) (vec spaces) [])
         chosen-colors (if (map? color-overrides) color-overrides {})
         shown-filter (if view-filter (merge visibility/no-filter view-filter) (:view-filter state))
         shown-headers (if header-mode (pairing/header-mode header-mode) (:header-mode state))
         updated (cond-> (assoc state
                                :settings (or settings {})
                                :theme-kind (or theme-kind :dark)
-                               :sky-mode (or sky-mode :auto)
+                               :spaces described-spaces
+                               :sky-mode (:id (environments/environment-of sky-mode described-spaces))
                                :cloud-name cloud-name
                                :editor-font editor-font
                                :totals-open? (true? totals-open?)
                                :inspector-minimized? (true? inspector-minimized?)
+                               :dock (dock-layout dock)
                                :tint-clouds? (not (false? tint-clouds?))
                                :color-layers chosen-layers
                                :color-overrides chosen-colors
@@ -369,7 +383,8 @@
                                :header-mode shown-headers)
                   display-mode (assoc :display-mode display-mode)
                   arrangement (assoc :arrangement (:key (arrangement/arrangement arrangement)))
-                  spread (assoc :spread (bounded-spread spread)))]
+                  spread (assoc :spread (bounded-spread spread))
+                  (repl-state/valid-geometry repl-geometry) (assoc-in [:repl :geometry] (repl-state/valid-geometry repl-geometry)))]
     (unchanged (cond
                  (or (not= shown-filter (:view-filter state)) (not= shown-headers (:header-mode state)))
                  (with-visibility updated)
@@ -391,10 +406,7 @@
                  layers-changed? (recolored updated true)
                  :else updated))))
 
-(defn- take-snapshot
-  "The state with a snapshot from the host, shown when it was the one
-  asked for."
-  [state {:keys [snapshot]}]
+(defn- take-snapshot [state {:keys [snapshot]}]
   (let [state (cond-> state
                 (= :working-tree (:id snapshot)) (-> (assoc :working-snapshot snapshot) settle-buffers))]
     (if (= (:id snapshot) (:requested-snapshot-id state))
@@ -414,7 +426,7 @@
         checked (if (and (= :working-tree snapshot-id) (seq result-paths))
                   (reduce (fn [checked {:keys [path text]}]
                             (if (contains? result-paths path)
-                              (results-still-matching checked path (editing/text-lines (or text "")))
+                              (results-still-matching checked path (editing-state/text-lines (or text "")))
                               checked))
                           state
                           (mapcat :files entries))
@@ -456,14 +468,13 @@
     (unchanged state)
 
     :else
-    (let [[state source-effect] (request-sources (assoc state :focused-id namespace-id :menu nil) [namespace-id])]
+    (let [[state source-effect] (request-sources (repl-state/follow-page (assoc state :focused-id namespace-id :menu nil) namespace-id)
+                                                 [namespace-id])]
       (changed state source-effect [:lift namespace-id]))))
 
-(defn- fly-to-namespace
-  "Sets everything down and flies to a page."
-  [state namespace-id]
+(defn- fly-to-namespace [state namespace-id]
   (let [[settled lift-effects] (set-down-everything (stop-editing (assoc state :menu nil)))
-        [state source-effect] (request-sources settled [namespace-id])]
+        [state source-effect] (request-sources (repl-state/follow-page settled namespace-id) [namespace-id])]
     (apply changed state (concat lift-effects [source-effect [:fly-to namespace-id]]))))
 
 (defn- click-folder
@@ -477,16 +488,12 @@
                (when lifted-folder [:set-down-folder lifted-folder])
                [:lift-folder directory]))))
 
-(defn- visit-namespace
-  "Shows a page, hidden or not, and lifts it."
-  [state namespace-id]
+(defn- visit-namespace [state namespace-id]
   (let [[shown-state filter-effect] (revealed state namespace-id)
         [state source-effect] (request-sources (assoc shown-state :focused-id namespace-id :menu nil) [namespace-id])]
     (changed state filter-effect source-effect [:lift namespace-id])))
 
-(defn- set-down-one
-  "Sets down the lifted page, or else the lifted folder."
-  [state]
+(defn- set-down-one [state]
   (cond
     (:focused-id state) (changed (assoc state :focused-id nil) [:set-down (:focused-id state)])
     (:lifted-folder state) (changed (assoc state :lifted-folder nil) [:set-down-folder (:lifted-folder state)])
@@ -502,21 +509,28 @@
     (:color-chooser state) (unchanged (assoc state :color-chooser nil))
     :else (set-down-one state)))
 
+(defn- without-results [state]
+  (when (or (seq (:inline-results state)) (seq (:notices state)))
+    (assoc state :inline-results {} :notices [])))
+
 (defn- escape
-  "Closes the innermost open thing, then sets down what is lifted."
+  "Closes the innermost open thing, inline results and notices counting
+  as one, then stops following an agent, then sets down what is lifted."
   [state]
   (cond
     (:menu state) (unchanged (assoc state :menu nil))
     (:color-chooser state) (unchanged (assoc state :color-chooser nil))
+    (without-results state) (unchanged (without-results state))
     (:editing state) (unchanged (stop-editing state))
     (get-in state [:search :open?]) (unchanged (assoc state :search (:search initial-state)))
     (:views-open? state) (unchanged (assoc state :views-open? false))
     (:arrange-open? state) (unchanged (assoc state :arrange-open? false))
+    (get-in state [:presence :pane-open?]) (unchanged (assoc-in state [:presence :pane-open?] false))
+    (get-in state [:assistant :open?]) (unchanged (assoc-in state [:assistant :open?] false))
+    (get-in state [:presence :following]) (unchanged (assoc-in state [:presence :following] nil))
     :else (set-down-one state)))
 
-(defn- show-definition
-  "Sets everything down and flies to a definition's line."
-  [state {:keys [namespace-id] :as location}]
+(defn- show-definition [state {:keys [namespace-id] :as location}]
   (let [[settled lift-effects] (set-down-everything (assoc state :menu nil))
         [state source-effect] (request-sources settled [namespace-id])]
     (apply changed state (concat lift-effects [source-effect [:fly-to-line location]]))))
@@ -524,17 +538,15 @@
 (defn- jump-to-name
   "Flies to the definition of a name written on a page, offers a menu at
   the pointer when the name could mean several, or says none is shown."
-  [state {:keys [namespace-id name x y]}]
+  [state {written-name :name :keys [namespace-id x y]}]
   (let [menu-limit 10
-        found (definitions/choices (:visible-snapshot state) namespace-id name menu-limit)]
+        found (definitions/choices (:visible-snapshot state) namespace-id written-name menu-limit)]
     (case (count found)
-      0 (unchanged (with-notice (assoc state :menu nil) (str "No page shown defines " name ".")))
+      0 (unchanged (with-notice (assoc state :menu nil) (str "No page shown defines " written-name ".")))
       1 (show-definition state (first found))
-      (unchanged (assoc state :menu {:kind :definitions :name name :choices found :x x :y y})))))
+      (unchanged (assoc state :menu {:kind :definitions :name written-name :choices found :x x :y y})))))
 
-(defn- frame-directory
-  "Sets everything down and frames a folder."
-  [state directory]
+(defn- frame-directory [state directory]
   (let [[settled lift-effects] (set-down-everything (assoc state :menu nil))]
     (apply changed settled (conj lift-effects [:frame-directory directory]))))
 
@@ -564,11 +576,16 @@
                     (send-effect :view/open-location {:path path :line line :column (or column 1)})))
    :frame-all (fn [state] (changed (assoc state :focused-id nil :lifted-folder nil :menu nil) [:frame-all]))
    :frame-directory frame-directory
-   :cycle-sky-mode (remembered :sky-mode [:sky-mode] #(sky/next-mode (:sky-mode %)))
+   :cycle-sky-mode (remembered :sky-mode [:sky-mode] #(environments/next-id (:sky-mode %) (:spaces %)))
+   :choose-sky-mode (remembered :sky-mode [:sky-mode] (fn [state id] (:id (environments/environment-of id (:spaces state)))))
    :toggle-display-mode (remembered :display-mode [:display-mode] #(if (= :names (:display-mode %)) :code :names))
    :toggle-editor-colors (remembered-toggle :editor-colors? [:settings :editor-colors?])
    :toggle-legend (quietly #(update % :legend-open? not))
    :toggle-inspector (remembered-toggle :inspector-minimized? [:inspector-minimized?])
+   :toggle-pane-minimized (with-dock (fn [layout pane]
+                                       (update layout :minimized #(if (contains? % pane) (disj % pane) (conj % pane)))))
+   :resize-dock (with-dock (fn [layout width] (assoc layout :width width)))
+   :resize-panes (with-dock (fn [layout weights] (update layout :weights merge weights)))
    :dismiss-notice (quietly (fn [state notice-index]
                               (update state :notices
                                       (fn [notices]
@@ -577,9 +594,7 @@
 
 ;; Arranging the cloud
 
-(defn- set-arrangement
-  "Switches to another arrangement, putting every page back."
-  [state arrangement-key]
+(defn- set-arrangement [state arrangement-key]
   (let [chosen (:key (arrangement/arrangement arrangement-key))]
     (if (= chosen (:arrangement state))
       (unchanged state)
@@ -596,15 +611,10 @@
       (let [[settled lift-effects] (settle-lifts (with-visibility (assoc state :header-mode chosen :menu nil)))]
         (apply changed settled (remember :header-mode chosen) (conj lift-effects [:refit]))))))
 
-(defn- choose-layers
-  "The state recolored with `chosen` layers on, nil for the defaults,
-  remembering the choice."
-  [state chosen]
+(defn- choose-layers [state chosen]
   (changed (recolored (assoc state :color-layers chosen) false) (remember :color-layers chosen)))
 
-(defn- toggle-color-layer
-  "Turns one color layer on or off."
-  [state layer-key]
+(defn- toggle-color-layer [state layer-key]
   (let [enabled (enabled-layers state)
         toggled (if (contains? enabled layer-key) (disj enabled layer-key) (conj enabled layer-key))]
     (choose-layers state (into [] (comp (map :key) (filter toggled)) (:layer-registry state)))))
@@ -621,10 +631,7 @@
                         (dissoc (:color-overrides state) layer-key))))]
     (recolored (assoc state :color-overrides overrides) true)))
 
-(defn- choose-color
-  "Recolors with `colors` chosen for `target`, or with the choice undone
-  when `colors` is nil, remembering the choice."
-  [state target colors]
+(defn- choose-color [state target colors]
   (let [chosen (with-chosen-color state target colors)]
     (changed chosen (remember :color-overrides (:color-overrides chosen)))))
 
@@ -632,7 +639,7 @@
   (remembered :spread [:spread] (fn [_state spread] (bounded-spread spread))))
 
 (def ^:private arrangement-handlers
-  {:toggle-arrange-panel (panel-toggle :arrange-open? :views-open?)
+  {:toggle-arrange-panel (side-pane-toggle :arrange)
    :set-arrangement set-arrangement
    :set-header-mode set-header-mode
    :toggle-color-layer toggle-color-layer
@@ -677,7 +684,7 @@
                                                                        (:snapshot state))})))))
 
 (def ^:private filter-handlers
-  {:toggle-views-panel (panel-toggle :views-open? :arrange-open?)
+  {:toggle-views-panel (side-pane-toggle :views)
    :toggle-view (filtering (fn [state view-label] (visibility/toggle-view (:view-filter state) view-label)))
    :show-only (filtering (fn [_state patterns] (visibility/show-only patterns)))
    :hide-page (filtering (fn [state namespace-id] (visibility/hide-pages (:view-filter state) (:snapshot state) [namespace-id])))
@@ -709,15 +716,14 @@
   (vec (take search-result-limit (scene/search-results visible-snapshot (:query search) (visible-ids state)))))
 
 (defn- lift-search-result [state namespace-id]
-  (let [[state source-effect] (request-sources (assoc state :search (:search initial-state)
-                                                      :focused-id namespace-id
-                                                      :menu nil)
+  (let [[state source-effect] (request-sources (repl-state/follow-page (assoc state :search (:search initial-state)
+                                                                              :focused-id namespace-id
+                                                                              :menu nil)
+                                                                       namespace-id)
                                                [namespace-id])]
     (changed state source-effect [:lift namespace-id])))
 
-(defn- search-submit
-  "Lifts the search result the arrows chose."
-  [state]
+(defn- search-submit [state]
   (let [results (search-results state)]
     (if (seq results)
       (lift-search-result state (get results (get-in state [:search :selected] 0) (first results)))
@@ -788,16 +794,14 @@
 
 ;; Editing from the cloud
 
-(defn- file-language
-  "The language of the file at `path` on page `node`."
-  [node path]
+(defn- file-language [node path]
   (or (some #(when (= path (:path %)) (:language %)) (:files node))
       (page/language-of node)))
 
 (defn editable?
   "True when the file at `path` on page `node` can be edited from the
-  cloud: a file of a language CodeCloud reads with an adapter, in the
-  working tree."
+  cloud, as a working tree file of a language CodeCloud reads with an
+  adapter can."
   [state node path]
   (and (= :working-tree (get-in state [:snapshot :id]))
        (catalog/analyzed? (file-language node path))))
@@ -813,29 +817,27 @@
   "A buffer for the file at `path` on page `namespace-id` holding `text`,
   with no edits sent yet."
   [namespace-id path language text]
-  (let [opened (editing/buffer text)]
+  (let [opened (editing-state/buffer text)]
     (assoc opened
            :namespace-id namespace-id
            :path path
            :language language
-           :unit (editing/indent-unit (:lines opened) language)
+           :unit (editing-state/indent-unit (:lines opened) language)
            :revision 0
            :acked 0
            :acked-key nil
            :epoch 0)))
 
-(defn- working-content-keys
-  "Map of each file path in the working tree to its content key."
-  [state]
+(defn- working-content-keys [state]
   (into {}
         (for [node (vals (get-in state [:working-snapshot :namespaces]))
               {:keys [path content-key]} (:files node)]
           [path content-key])))
 
 (defn- settle-buffers
-  "The state without the buffers the working tree has caught up with: not
-  being edited, and either never changed or with every edit acknowledged
-  and the working tree's snapshot holding the text the last one left."
+  "The state without the buffers the working tree has caught up with,
+  those never changed and those whose last acknowledged edit the snapshot
+  already holds."
   [state]
   (let [editing-path (get-in state [:editing :path])
         content-keys (delay (working-content-keys state))]
@@ -850,9 +852,7 @@
                                             (= acked-key (get @content-keys path)))))))
                     buffers)))))
 
-(defn- stop-editing
-  "The state with no file being edited."
-  [state]
+(defn- stop-editing [state]
   (settle-buffers (assoc state :editing nil)))
 
 (defn- settle-editing
@@ -866,9 +866,7 @@
       (stop-editing state)
       state)))
 
-(defn- with-dirty
-  "The state noting whether the file at `path` has unsaved changes."
-  [state path dirty?]
+(defn- with-dirty [state path dirty?]
   (update state :dirty-paths (if dirty? conj disj) path))
 
 (defn- begin-editing
@@ -892,15 +890,16 @@
       :else
       (let [opened (or existing (new-buffer namespace-id path language (:text source-file)))
             placed (case select
-                     :word (let [[from to] (editing/word-range opened position language)]
-                             (editing/select-range opened from to))
-                     :line (let [[from to] (editing/line-range opened position)]
-                             (editing/select-range opened from to))
-                     (editing/place opened position false))]
+                     :word (let [[from to] (editing-state/word-range opened position language)]
+                             (editing-state/select-range opened from to))
+                     :line (let [[from to] (editing-state/line-range opened position)]
+                             (editing-state/select-range opened from to))
+                     (editing-state/place opened position false))]
         (unchanged (-> (if (= path (get-in state [:editing :path])) state (stop-editing state))
                        (assoc-in [:buffers path] placed)
                        (assoc :editing {:namespace-id namespace-id :path path :columns columns :rows rows}
-                              :menu nil)))))))
+                              :menu nil)
+                       (repl-state/follow-page namespace-id)))))))
 
 (defn- edited
   "The state after `edit` changed the buffer being edited. A change to
@@ -910,7 +909,7 @@
         before (get-in state [:buffers path])
         after (edit before)
         change (when-not (identical? (:lines before) (:lines after))
-                 (editing/change-between (:lines before) (:lines after)))]
+                 (editing-state/change-between (:lines before) (:lines after)))]
     (if change
       (let [revision (inc (:revision before))]
         (changed (-> state
@@ -930,29 +929,30 @@
     (if (get-in state [:buffers path])
       (edited state
               (case command
-                :type #(editing/insert % first-argument (if (string/includes? first-argument "\n") :paste :typing))
-                :paste #(editing/insert % first-argument :paste)
-                :cut #(editing/insert % "" :cut)
-                :move #(editing/move % first-argument second-argument options)
-                :delete #(editing/delete % first-argument options)
-                :break-line #(editing/break-line % language unit)
-                :indent #(editing/indent % unit page/tab-size)
-                :outdent #(editing/outdent % unit)
-                :comment #(if-let [marker (comment-marker path language)] (editing/toggle-comment % marker) %)
-                :undo editing/undo
-                :redo editing/redo
-                :select-all editing/select-all
-                :place #(editing/place % first-argument second-argument)
-                :select #(editing/select-range % first-argument second-argument)
-                :select-word #(let [[from to] (editing/word-range % first-argument language)]
-                                (editing/select-range % from to))
-                :select-line #(let [[from to] (editing/line-range % first-argument)]
-                                (editing/select-range % from to))))
+                :type #(cond
+                         (string/includes? first-argument "\n") (editing-state/insert % first-argument :paste)
+                         (false? (get-in state [:settings :pairs-brackets?])) (editing-state/insert % first-argument :typing)
+                         :else (editing-state/type-text % first-argument language))
+                :paste #(editing-state/insert % first-argument :paste)
+                :cut #(editing-state/insert % "" :cut)
+                :move #(editing-state/move % first-argument second-argument options)
+                :delete #(editing-state/delete % first-argument options)
+                :break-line #(editing-state/break-line % language unit)
+                :indent #(editing-state/indent % unit page/tab-size)
+                :outdent #(editing-state/outdent % unit)
+                :comment #(if-let [marker (comment-marker path language)] (editing-state/toggle-comment % marker) %)
+                :undo editing-state/undo
+                :redo editing-state/redo
+                :select-all editing-state/select-all
+                :place #(editing-state/place % first-argument second-argument)
+                :select #(editing-state/select-range % first-argument second-argument)
+                :select-word #(let [[from to] (editing-state/word-range % first-argument language)]
+                                (editing-state/select-range % from to))
+                :select-line #(let [[from to] (editing-state/line-range % first-argument)]
+                                (editing-state/select-range % from to))))
       (unchanged state))))
 
-(defn- acknowledge-edit
-  "The state after the host applied edit `revision` of `path`."
-  [state {:keys [path revision content-key dirty?]}]
+(defn- acknowledge-edit [state {:keys [path revision content-key dirty?]}]
   (settle-buffers (cond-> (with-dirty state path dirty?)
                     (get-in state [:buffers path])
                     (update-in [:buffers path] assoc :acked revision :acked-key content-key))))
@@ -965,265 +965,194 @@
   (settle-buffers
    (cond-> (-> state
                (with-dirty path dirty?)
-               (results-still-matching path (editing/text-lines text)))
+               (results-still-matching path (editing-state/text-lines text)))
      (get-in state [:buffers path])
      (update-in [:buffers path] (fn [current]
-                                  (assoc (editing/rebase current text)
+                                  (assoc (editing-state/rebase current text)
                                          :epoch epoch
                                          :acked (:revision current)
                                          :acked-key content-key))))))
 
+(defn- request-format
+  "Asks the host to format the file being edited with the editor's
+  formatter, the top-level forms at the caret for :form and the whole
+  file for :file."
+  [state scope]
+  (let [path (get-in state [:editing :path])
+        {:keys [lines language revision epoch] :as buffer} (get-in state [:buffers path])]
+    (if buffer
+      (let [[start-line end-line] (when (= :form scope) (editing-state/format-range buffer))]
+        (changed state (send-effect :view/format (cond-> {:path path :language language :revision revision :epoch epoch
+                                                         :text (string/join "\n" lines)}
+                                                  start-line (assoc :start-line start-line :end-line end-line)))))
+      (unchanged state))))
+
+(defn- tab
+  "Formats the top-level Clojure form at the caret when Tab is pressed
+  while editing, as Calva does, and otherwise indents the selected lines,
+  or the caret's."
+  [state]
+  (let [{:keys [language] :as buffer} (get-in state [:buffers (get-in state [:editing :path])])]
+    (if (and buffer (= :clojure language) (not (editing-state/selected? buffer)))
+      (request-format state :form)
+      (edit state :indent))))
+
+(defn- take-formatted
+  "The state after the host formatted the text of `path`, the buffer
+  taking the formatted text as one change undo takes back, unless it
+  changed after the text was sent."
+  [state {:keys [path revision epoch text]}]
+  (let [buffer (get-in state [:buffers path])]
+    (if (and buffer text (= path (get-in state [:editing :path]))
+             (= revision (:revision buffer)) (= epoch (:epoch buffer)))
+      (edited state #(editing-state/reformatted % (editing-state/text-lines text) (:language %)))
+      (unchanged state))))
+
 (def ^:private editing-handlers
   {:begin-editing begin-editing
    :edit edit
-   :end-editing (quietly stop-editing)
+   :tab tab
+   :format-code request-format
+   ;; The first key of a chord, such as Ctrl+Alt+C, waiting for its second.
+   :chord (fn [state first-key] (unchanged (assoc state :chord first-key)))
+   ;; Escape takes away inline results and notices before it stops editing.
+   :end-editing (fn [state] (unchanged (or (without-results state) (stop-editing state))))
    :save-file (fn [state]
                 (if-let [path (get-in state [:editing :path])]
                   (changed state (send-effect :view/save {:path path}))
                   (unchanged state)))})
 
-;; The REPL
+;; Agents
 
-(defn- with-log
-  "The state with `text` of `kind` (:input, :out, :err, :value, or :info)
-  added to the REPL's log for request `id`, joining the last entry when
-  it is more output of the same kind for the same request. The log keeps
-  its latest entries, each cut to its latest text."
-  [state kind text id]
-  (let [kept-entries 400
-        longest-entry 20000
-        clipped (fn [entry-text]
-                  (if (> (count entry-text) longest-entry)
-                    (subs entry-text (- (count entry-text) longest-entry))
-                    entry-text))
-        {:keys [log entries-made]} (:repl state)
-        last-entry (peek log)]
-    (if (and last-entry (contains? #{:out :err} kind) (= kind (:kind last-entry)) (= id (:id last-entry)))
-      (assoc-in state [:repl :log (dec (count log))] (update last-entry :text #(clipped (str % text))))
-      (let [kept (if (>= (count log) kept-entries) (subvec log (- (count log) (dec kept-entries))) log)]
-        (update state :repl assoc
-                :log (conj kept {:number entries-made :kind kind :text (clipped text) :id id})
-                :entries-made (inc entries-made))))))
-
-(defn- echoed
-  "How code sent from a page shows in the REPL's log: its first line, cut
-  short when long, marked when more follows."
-  [code]
-  (let [longest-echo 120
-        [first-line & more] (string/split-lines (string/trim code))
-        shown (if (> (count first-line) longest-echo) (str (subs first-line 0 longest-echo) "…") first-line)]
-    (if more (str shown " …") shown)))
-
-(defn- prompt
-  "The REPL's prompt for namespace `namespace-name`, the session's own,
-  user, when nil."
-  [namespace-name]
-  (str (or namespace-name "user") "=> "))
-
-(defn- pruned-results
-  "The inline results without all but the most recent."
-  [results]
-  (let [kept-results 24]
-    (if (> (count results) kept-results)
-      (into {} (take-last kept-results (sort-by (comp :order val) results)))
-      results)))
-
-(defn- remembered-input
-  "The pane's input history with `code` as its latest entry."
-  [history code]
-  (let [kept-inputs 100]
-    (vec (take-last kept-inputs (conj (filterv #(not= code %) history) code)))))
-
-(defn- connecting
-  "The state while the view waits to hear how connecting went."
+(defn- take-presence
+  "The state after the host said where agents work, with a notice for each
+  change to a file open in the cloud and a flight when the followed agent
+  moved."
   [state message]
-  (update state :repl assoc :status :connecting :message message))
+  (let [before (:presence state)
+        after (presence-state/received before message)
+        [notices latest] (presence-state/change-notices (:agents after) (set (keys (:buffers state))) (:noticed-through before))
+        noticed (reduce with-notice
+                        (assoc state :presence (assoc after :noticed-through latest))
+                        (remove (set (:notices state)) notices))
+        destination (when (= :working-tree (get-in state [:snapshot :id]))
+                      (presence-state/followed-place before after (presence-state/page-index (:snapshot state)) (visible-ids state)))]
+    (if destination
+      (let [[requested source-effect] (request-sources noticed [(:namespace-id destination)])]
+        (changed requested source-effect [:fly-to-line (assoc destination :framing :following)]))
+      (unchanged noticed))))
 
-(defn- toggle-repl
-  "Opens or closes the REPL pane. Opening it while disconnected connects
-  to the server the project's port file names."
+(defn- show-place
+  "Takes the camera to `place`, {:path :line}. A page the filter hides
+  shows again and lifts, and a page in view is approached at the line,
+  with everything set down. A place no page holds changes nothing."
+  [state place]
+  (let [namespace-id (when (and (:path place) (:snapshot state)) (namespace-for-path (:snapshot state) (:path place)))]
+    (cond
+      (nil? namespace-id) (unchanged state)
+      (not (contains? (visible-ids state) namespace-id)) (visit-namespace state namespace-id)
+      :else (show-definition state {:namespace-id namespace-id :path (:path place) :line (max 1 (or (:line place) 1))}))))
+
+(defn- follow-agent
+  "Follows agent `agent-id` with the camera until the person moves it,
+  flying to where the agent works now, framed as following."
+  [state agent-id]
+  (let [following (assoc-in state [:presence :following] agent-id)]
+    (if-let [place (:place (presence-state/agent-named (:presence state) agent-id))]
+      (update (show-place following place) :effects
+              (fn [effects]
+                (mapv (fn [[kind payload :as effect]]
+                        (if (= :fly-to-line kind)
+                          [kind (cond-> (assoc payload :framing :following) (:whole? place) (assoc :whole? true))]
+                          effect))
+                      effects)))
+      (unchanged following))))
+
+(defn- dismiss-pin [state pin-id]
+  (changed (update-in state [:presence :pins] (fn [pins] (filterv #(not= pin-id (:id %)) pins)))
+           (send-effect :view/dismiss-pin {:pin-id pin-id})))
+
+;; New files
+
+(defn- context-directory
+  "The folder a new file goes in unless one is named, that of the file
+  being edited, else of the page or folder brought closer, else the
+  cloud's own."
   [state]
-  (let [opening? (not (get-in state [:repl :open?]))
-        connect? (and opening? (= :disconnected (get-in state [:repl :status])))]
-    (cond-> (changed (assoc-in state [:repl :open?] opening?))
-      connect? (-> (update :state connecting "Looking for an nREPL server…")
-                   (update :effects conj (send-effect :view/repl-connect {}))))))
+  (or (some-> (get-in state [:editing :path]) source/directory-of)
+      (some->> (:focused-id state) (get (:namespaces (:snapshot state))) page/directory)
+      (:lifted-folder state)
+      ""))
 
-(defn- port-target
-  "The {:host :port} that text typed into the REPL pane names, as 7888 or
-  localhost:7888, or nil."
-  [text]
-  (when-let [[_ host port] (re-matches #"(?:([^\s:]+):)?(\d{1,5})" text)]
-    (cond-> {:port #?(:clj (Long/parseLong port) :cljs (js/parseInt port 10))}
-      host (assoc :host host))))
+(defn- new-file
+  "Asks the host for the name of a new file in `directory`, a folder of
+  the cloud relative to its root, the empty string naming the root, or
+  without one in the folder at hand."
+  [state directory]
+  (if (= :working-tree (get-in state [:snapshot :id]))
+    (changed (assoc state :menu nil) (send-effect :view/new-file {:directory (or directory (context-directory state))}))
+    (unchanged (with-notice (assoc state :menu nil) "History is read-only. Return to Now to make a file."))))
 
-(defn- repl-submit
-  "Sends what the viewer typed into the REPL pane: a port to connect to
-  while not connected, or else code to evaluate in the pane's namespace."
-  [state text]
-  (let [code (string/trim text)
-        {:keys [status ns requests-made]} (:repl state)
-        target (when (not= :connected status) (port-target code))]
+(defn- advance-pending-edit
+  "`outcome` carried one step toward editing the new file the host made.
+  Its page shows, its text is asked for, and the page comes closer with
+  the caret in place; a file whose page never shows is let go."
+  [{:keys [state effects] :as outcome}]
+  (let [{:keys [path line column requested? waited] :as pending} (:pending-edit state)
+        snapshot (:snapshot state)
+        namespace-id (when (and pending (= :working-tree (:id snapshot))) (namespace-for-path snapshot path))
+        most-snapshots-waited 4
+        joined (fn [{next-state :state next-effects :effects}] {:state next-state :effects (into effects next-effects)})]
     (cond
-      (string/blank? code) (unchanged state)
+      (nil? pending) outcome
+      (nil? namespace-id) (cond-> outcome (> waited most-snapshots-waited) (update :state dissoc :pending-edit))
 
-      target
-      (changed (connecting state (str "Connecting to port " (:port target) "…"))
-               (send-effect :view/repl-connect target))
+      (some #(= path (:path %)) (source-of state namespace-id))
+      (let [{shown :state shown-effects :effects}
+            (if (contains? (visible-ids state) namespace-id)
+              (let [[settled lift-effects] (set-down-everything (assoc (dissoc state :pending-edit) :menu nil))]
+                {:state (assoc settled :focused-id namespace-id) :effects (conj (vec lift-effects) [:lift namespace-id])})
+              (show-place (dissoc state :pending-edit) {:path path :line (inc line)}))
+            {begun :state begun-effects :effects} (begin-editing shown {:namespace-id namespace-id :path path
+                                                                        :position [line column]})]
+        {:state begun :effects (-> effects (into shown-effects) (into begun-effects))})
 
-      :else
-      (let [id (str "eval-" requests-made)]
-        (changed (-> state
-                     (update :repl assoc :requests-made (inc requests-made))
-                     (update-in [:repl :history] remembered-input code)
-                     (assoc-in [:repl :pending id] {:origin :pane :ns ns})
-                     (with-log :input (str (prompt ns) code) id))
-                 (send-effect :view/repl-eval (cond-> {:id id :code code} ns (assoc :ns ns))))))))
+      requested? outcome
+      :else (let [[requested source-effect] (request-sources (assoc-in state [:pending-edit :requested?] true) [namespace-id])]
+              (joined (changed requested source-effect))))))
 
-(defn- evaluation
-  "What evaluating `scope` sends from `buffer`, or a notice saying why
-  nothing can be sent: the selection or the form at the caret for :form,
-  the top-level form around the caret for :top-level, or the whole file
-  for :file, as {:code :start :end :namespace-name}."
-  [{:keys [lines caret language] :as buffer} scope]
-  (let [read-forms (delay (forms/read-forms lines))
-        selection? (and (= :form scope) (editing/selected? buffer))
-        form (when-not selection?
-               (case scope
-                 :form (forms/form-at @read-forms caret)
-                 :top-level (forms/top-level-at @read-forms caret)
-                 nil))]
-    (cond
-      (not= :clojure language)
-      {:notice "Only Clojure files evaluate in the REPL."}
+(defn- take-created
+  "The state on its way to editing the new file the host made, at the
+  place the host gave, once the file's page shows."
+  [state {:keys [path line column]}]
+  (advance-pending-edit (unchanged (assoc state :pending-edit {:path path :line (or line 0) :column (or column 0) :waited 0}))))
 
-      selection?
-      (let [[start end] (editing/ordered buffer)]
-        {:code (editing/selected-text buffer) :start start :end end
-         :namespace-name (forms/namespace-at @read-forms start)})
+(defn- carrying-pending-edit
+  "`take-message` followed by a step toward editing a new file, counting
+  the snapshots it waits through when `snapshot?`."
+  [take-message snapshot?]
+  (fn [state message]
+    (advance-pending-edit (take-message (cond-> state
+                                          (and snapshot? (:pending-edit state)) (update-in [:pending-edit :waited] inc))
+                                        message))))
 
-      (= :file scope)
-      {:code (string/join "\n" lines) :start [0 0] :end [0 0]
-       :namespace-name (forms/namespace-at @read-forms [0 0])}
-
-      (nil? form) {:notice "Put the caret in or beside a form to evaluate it."}
-      (not (:closed? form)) {:notice "The form at the caret is not closed."}
-
-      :else
-      {:code (forms/form-text lines form) :start (:start form) :end (:end form)
-       :namespace-name (forms/namespace-at @read-forms (:start form))})))
-
-(defn- evaluate
-  "Sends the REPL the selection or the form at the caret (`scope` :form),
-  the top-level form around the caret (:top-level), or the whole file
-  being edited (:file), marking the line where the result will show: the
-  last line of the code sent, or the first line of a loaded file."
-  [state scope]
-  (let [{:keys [path namespace-id]} (:editing state)
-        buffer (get-in state [:buffers path])
-        {:keys [notice code start end namespace-name]} (when buffer (evaluation buffer scope))]
-    (cond
-      (nil? buffer) (unchanged state)
-      notice (unchanged (with-notice state notice))
-      :else
-      (let [number (get-in state [:repl :requests-made])
-            id (str "eval-" number)
-            [start-line start-column] start
-            [end-line end-column] end
-            ;; A selection of whole lines ends at the start of the next.
-            result-line (if (and (zero? end-column) (> end-line start-line)) (dec end-line) end-line)
-            line-text (nth (:lines buffer) result-line)
-            result-key [path result-line]]
-        (changed (-> state
-                     (assoc-in [:repl :requests-made] (inc number))
-                     (assoc-in [:repl :pending id] {:origin :page :result-key result-key :ns namespace-name})
-                     (assoc-in [:inline-results result-key]
-                               {:id id
-                                :order number
-                                :namespace-id namespace-id
-                                :path path
-                                :line result-line
-                                :column (editing/visual-column line-text (count line-text) page/tab-size)
-                                :line-text line-text
-                                :loading? (= :file scope)
-                                :status :pending})
-                     (update :inline-results pruned-results)
-                     (with-log :input (str (prompt namespace-name) (if (= :file scope) (str "Loading " path) (echoed code))) id))
-                 (if (= :file scope)
-                   (send-effect :view/repl-load-file {:id id :code code :path path})
-                   (send-effect :view/repl-eval {:id id :code code :ns namespace-name :path path
-                                                 :line (inc start-line) :column (inc start-column)})))))))
-
-(defn- finished-result
-  "An inline result once its evaluation ended: its value, or else what
-  went wrong, read from `words`, the last reply's status, or from the
-  last line of error output."
-  [{:keys [status err] :as result} words]
-  (if (= :value status)
-    result
-    (let [error-line (last (remove string/blank? (string/split-lines (or err ""))))]
-      (assoc result
-             :status :error
-             :text (cond
-                     (contains? words "interrupted") "Interrupted"
-                     (contains? words "namespace-not-found") "Namespace not loaded"
-                     (contains? words "not-connected") "Not connected"
-                     (contains? words "connection-closed") "Connection closed"
-                     error-line error-line
-                     :else "No value")))))
-
-(defn- answered-result
-  "An inline result after one more reply to its evaluation. An error
-  after a value outweighs it."
-  [result {:keys [err value ex]} words]
-  (let [longest-error 2000]
-    (cond-> result
-      value (assoc :status :value :text value)
-      err (update :err #(let [joined (str % err)]
-                          (subs joined (max 0 (- (count joined) longest-error)))))
-      (or ex (contains? words "eval-error")) (assoc :status :error)
-      (contains? words "done") (finished-result words))))
-
-(defn- take-repl-status
-  "The state with the REPL connection's status, noting each change in the
-  log. A failed connection opens the pane, which says why."
-  [state {:keys [status port message]}]
-  (let [{previous-status :status previous-message :message} (:repl state)]
-    (cond-> (update state :repl assoc :status status :port port :message message)
-      (and message (not= [status message] [previous-status previous-message])) (with-log :info message nil)
-      (= :failed status) (assoc-in [:repl :open?] true))))
-
-(defn- take-repl-output
-  "The state after one reply to a REPL request: its output in the log,
-  its result on the page it came from, and, for the pane's own requests,
-  the namespace the pane evaluates in."
-  [state {:keys [id out err value ns] :as reply}]
-  (let [{:keys [origin result-key] request-ns :ns} (get-in state [:repl :pending id])
-        words (set (:status reply))]
-    (cond-> state
-      out (with-log :out out id)
-      err (with-log :err err id)
-      value (with-log :value value id)
-      (and ns (= :pane origin)) (assoc-in [:repl :ns] ns)
-      (contains? words "namespace-not-found")
-      (with-log :err (str "The REPL has not loaded " (or request-ns "that namespace") " yet. Load its file first.") id)
-      (contains? words "interrupted") (with-log :info "Interrupted." id)
-      (and result-key (= id (get-in state [:inline-results result-key :id])))
-      (update-in [:inline-results result-key] answered-result reply words)
-      (contains? words "done") (update-in [:repl :pending] dissoc id))))
-
-(def ^:private repl-handlers
-  {:toggle-repl toggle-repl
-   :repl-connect (fn [state]
-                   (changed (connecting state "Looking for an nREPL server…") (send-effect :view/repl-connect {})))
-   :repl-disconnect (fn [state] (changed state (send-effect :view/repl-disconnect {})))
-   :repl-submit repl-submit
-   :repl-interrupt (fn [state]
-                     (if (seq (get-in state [:repl :pending]))
-                       (changed state (send-effect :view/repl-interrupt {}))
-                       (unchanged state)))
-   :repl-clear (quietly #(assoc-in % [:repl :log] []))
-   :evaluate evaluate})
+(def ^:private agent-handlers
+  {:connect-agent (fn [state] (changed state (send-effect :view/connect-agent {})))
+   :agents-reporting (fn [state level]
+                       (changed (assoc-in state [:agents :reporting] level)
+                                (send-effect :view/agents-reporting {:level level})))
+   :open-coworkers (quietly #(with-side-pane % :coworkers true))
+   :toggle-coworkers (side-pane-toggle :coworkers)
+   :toggle-assistant (side-pane-toggle :assistant)
+   :follow-agent follow-agent
+   :stop-following (quietly (fn [state] (assoc-in state [:presence :following] nil)))
+   :show-agent (fn [state agent-id]
+                 (show-place state (:place (presence-state/agent-named (:presence state) agent-id))))
+   :show-pin (fn [state pin-id]
+               (show-place state (some #(when (= pin-id (:id %)) %) (get-in state [:presence :pins]))))
+   :show-place show-place
+   :dismiss-pin dismiss-pin
+   :new-file new-file})
 
 ;; Routing
 
@@ -1232,10 +1161,10 @@
   and the message."
   {:host/init take-init
    :host/views take-views
-   :host/snapshot take-snapshot
+   :host/snapshot (carrying-pending-edit take-snapshot true)
    :host/history (quietly (fn [state {:keys [commits available?]}]
                             (assoc state :commits (vec commits) :history-status (if available? :ready :unavailable))))
-   :host/sources take-sources
+   :host/sources (carrying-pending-edit take-sources false)
    :host/status (quietly (fn [state {:keys [message progress]}]
                            (assoc state :status (when message {:message message :progress progress}))))
    :host/theme (quietly (fn [state {:keys [theme-kind]}] (assoc state :theme-kind theme-kind)))
@@ -1247,14 +1176,25 @@
    :host/edited (quietly acknowledge-edit)
    :host/document (quietly take-document)
    :host/dirty (quietly (fn [state {:keys [path dirty?]}] (with-dirty state path dirty?)))
-   :host/repl-status (quietly take-repl-status)
-   :host/repl-output (quietly take-repl-output)})
+   :host/agents (quietly (fn [state message]
+                           (assoc state :agents (select-keys message [:serving? :url :agents :problem :reporting]))))
+   :host/presence take-presence
+   :host/formatted take-formatted
+   :host/created take-created
+   :host/diagnostics (quietly (fn [state {:keys [files]}] (assoc state :diagnostics (or files {}))))})
+
+(def ^:private all-message-handlers
+  (merge message-handlers
+         (into {}
+               (map (fn [[message-type take-message]] [message-type (quietly take-message)]))
+               (concat repl-state/message-handlers assistant-state/message-handlers))
+         repl-state/sending-message-handlers))
 
 (def ^:private event-handlers
   "Each event's handler, by the event's first element. A host message
   arrives as [:host message] and routes again on its :type."
   (merge {:host (fn [state message]
-                  (if-let [handler (get message-handlers (:type message))]
+                  (if-let [handler (get all-message-handlers (:type message))]
                     (handler state message)
                     (unchanged state)))}
          interaction-handlers
@@ -1263,7 +1203,9 @@
          search-handlers
          history-handlers
          editing-handlers
-         repl-handlers))
+         repl-state/handlers
+         agent-handlers
+         assistant-state/handlers))
 
 (defn handle
   "Applies one event, a vector led by its type, to the state. An event

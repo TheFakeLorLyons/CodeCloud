@@ -1,6 +1,6 @@
 (ns codecloud.model.selection
-  "Path selections in gitignore syntax: an include list, everything when
-  empty, narrowed by an ignore list."
+  "Path selections in gitignore syntax, an include list, which takes
+  everything when empty, narrowed by an ignore list."
   (:require [codecloud.model.ignore :as ignore]))
 
 (defn compile-selection
@@ -9,9 +9,7 @@
   {:include-rules (when (seq include-patterns) [(ignore/rule-set "" include-patterns)])
    :ignore-rules (when (seq ignore-patterns) [(ignore/rule-set "" ignore-patterns)])})
 
-(defn selected?
-  "True when `path` belongs to a compiled selection."
-  [{:keys [include-rules ignore-rules]} path]
+(defn selected? [{:keys [include-rules ignore-rules]} path]
   (and (or (nil? include-rules) (ignore/ignored? include-rules path))
        (not (and ignore-rules (ignore/ignored? ignore-rules path)))))
 
@@ -21,7 +19,5 @@
   [path]
   (if (= "" path) "/**" (str "/" path "/")))
 
-(defn file-pattern
-  "Pattern matching exactly the file at `path`."
-  [path]
+(defn file-pattern [path]
   (str "/" path))

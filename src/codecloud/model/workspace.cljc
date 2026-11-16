@@ -10,9 +10,7 @@
   knows, such as deps.edn, package.json, or pyproject.toml."
   catalog/project-markers)
 
-(defn inside?
-  "True when `path` lies within `directory`."
-  [directory path]
+(defn inside? [directory path]
   (string/starts-with? path (str directory "/")))
 
 (defn nearest-cloud-file
@@ -54,7 +52,7 @@
     (quot (+ first-visible-line last-visible-line) 2)))
 
 (defn cloud-name
-  "Name shown for a cloud: its file's name without the extension, or its
+  "Name shown for a cloud, its file's name without the extension, or its
   folder's name for a file with the default name."
   [cloud-file-path default-name]
   (let [cloud-file-name (file-name cloud-file-path)

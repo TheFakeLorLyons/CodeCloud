@@ -1,12 +1,13 @@
 (ns codecloud.render.hud.views
-  "The views panel: named views, languages, and the folder tree, each
-  turning pages on and off, and saving the selection as a view. The tree
-  is built once per snapshot and its boxes are checked in place, so a box
+  "The views panel, whose named views, languages, and folder tree turn
+  pages on and off, and which saves the selection as a view. The tree is
+  built once per snapshot and its boxes are checked in place, so a box
   keeps focus and the list keeps its scroll while pages come and go."
   (:require [codecloud.languages.catalog :as catalog]
             [codecloud.presentation.scene :as scene]
             [codecloud.presentation.visibility :as visibility]
             [codecloud.render.dom :as dom]
+            [codecloud.render.hud.dock :as dock]
             [codecloud.render.icons :as icons]))
 
 (defn- view-options [dispatch named-views]
@@ -16,10 +17,7 @@
      [:button.view-option {:data-view view-label :on-click #(dispatch [:toggle-view view-label])}
       view-label])])
 
-(defn- toggle-row
-  "A checkbox row turning a page or a group on and off, with room for a
-  count."
-  [attribute value label on-toggle]
+(defn- toggle-row [attribute value label on-toggle]
   [:label.visibility-row
    [:input.visibility-toggle {:type "checkbox" attribute value :on-change (fn [_event] (on-toggle))}]
    [:span.visibility-name label]
@@ -77,6 +75,7 @@
   (list
    [:header.panel-header
     [:h2 "Views"]
+    (dock/minimize-button dispatch :views)
     [:button.icon-button {:aria-label "Close" :on-click #(dispatch [:toggle-views-panel])} icons/close]]
    (view-options dispatch named-views)
    (language-section dispatch snapshot)
@@ -123,9 +122,7 @@
     (some-> (dom/find-in root ".save-view")
             (dom/toggle-class! "is-hidden" (not (visibility/filtering? view-filter))))))
 
-(defn- focused-control
-  "The control inside `root` that has focus, as [attribute value]."
-  [^js root]
+(defn- focused-control [^js root]
   (let [^js active (.-activeElement js/document)]
     (when (and active (.contains root active))
       (some (fn [attribute] (when (.hasAttribute active attribute) [attribute (.getAttribute active attribute)]))

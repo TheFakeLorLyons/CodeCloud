@@ -1,6 +1,6 @@
 (ns codecloud.io.git
-  "The git command line: working tree files, history, and contents at any
-  commit, with paths relative to the cloud's root."
+  "The git command line, giving the working tree's files, the history, and
+  the contents at any commit, with paths relative to the cloud's root."
   (:require [clojure.string :as string]
             [codecloud.io.process :as process]
             [codecloud.io.task :as task]))

@@ -62,10 +62,7 @@
                    state))))
       state)))
 
-(defn strongly-connected-components
-  "Strongly connected components of the graph of `node-ids` and
-  `successors-of`, as vectors of ids."
-  [node-ids successors-of]
+(defn strongly-connected-components [node-ids successors-of]
   (:components
    (reduce (fn [state node]
              (if (contains? (:index-of state) node)

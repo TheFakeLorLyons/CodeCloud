@@ -2,7 +2,7 @@
   "name": "codecloud",
   "displayName": "CodeCloud",
   "description": "See a codebase as pages of real code floating among folder clouds, colored by folder or language, and zoom between the cloud and the editor.",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "lorelailyons",
   "author": "Lorelai Lyons",
   "license": "MIT",
@@ -126,6 +126,74 @@
         "command": "codecloud.showEverything",
         "title": "Show Everything in the Cloud",
         "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.connectAgent",
+        "title": "Connect an Agent",
+        "category": "CodeCloud",
+        "icon": "$(radio-tower)"
+      },
+      {
+        "command": "codecloud.chooseAssistantModel",
+        "title": "Choose the Assistant's Model",
+        "category": "CodeCloud",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "codecloud.evaluateForm",
+        "title": "Evaluate the Form at the Caret",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.evaluateEnclosingForm",
+        "title": "Evaluate the Enclosing Form",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.evaluateTopLevelForm",
+        "title": "Evaluate the Top-Level Form",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.evaluateToCaret",
+        "title": "Evaluate the Enclosing Form up to the Caret",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.evaluateTopLevelFormToCaret",
+        "title": "Evaluate the Top-Level Form up to the Caret",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.evaluateFileToCaret",
+        "title": "Evaluate the File up to the Caret",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.loadFile",
+        "title": "Load/Evaluate Current File",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.loadFileWithRequires",
+        "title": "Load/Evaluate Current File and Its Requires/Dependencies",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.interruptEvaluations",
+        "title": "Interrupt the Evaluations",
+        "category": "CodeCloud"
+      },
+      {
+        "command": "codecloud.clearInlineResults",
+        "title": "Clear Inline Results",
+        "category": "CodeCloud"
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "codecloud.hub",
+        "label": "CodeCloud"
       }
     ],
     "menus": {
@@ -146,7 +214,29 @@
           "group": "navigation@91"
         }
       ],
-      "explorer/context": [
+      "editor/context": [
+      {
+        "command": "codecloud.evaluateForm",
+        "when": "editorLangId == clojure && codecloud.inCloud",
+        "group": "codecloud@1"
+      },
+      {
+        "command": "codecloud.evaluateTopLevelForm",
+        "when": "editorLangId == clojure && codecloud.inCloud",
+        "group": "codecloud@2"
+      },
+      {
+        "command": "codecloud.loadFile",
+        "when": "editorLangId == clojure && codecloud.inCloud",
+        "group": "codecloud@3"
+      },
+      {
+        "command": "codecloud.loadFileWithRequires",
+        "when": "editorLangId == clojure && codecloud.inCloud",
+        "group": "codecloud@4"
+      }
+    ],
+    "explorer/context": [
         {
           "command": "codecloud.showOnlyInCloud",
           "group": "codecloud@1"
@@ -214,6 +304,56 @@
         "key": "ctrl+numpad_add",
         "mac": "cmd+numpad_add",
         "when": "editorTextFocus && config.codecloud.useStandardZoomKeys && codecloud.zoomedOut"
+      },
+      {
+        "command": "codecloud.evaluateForm",
+        "key": "ctrl+enter",
+        "when": "editorTextFocus && editorLangId == clojure && codecloud.inCloud && !calva:keybindingsEnabled && !calva:connected"
+      },
+      {
+        "command": "codecloud.evaluateEnclosingForm",
+        "key": "ctrl+shift+enter",
+        "when": "editorTextFocus && editorLangId == clojure && codecloud.inCloud && !calva:keybindingsEnabled && !calva:connected"
+      },
+      {
+        "command": "codecloud.evaluateTopLevelForm",
+        "key": "alt+enter",
+        "when": "editorTextFocus && editorLangId == clojure && codecloud.inCloud && !calva:keybindingsEnabled && !calva:connected"
+      },
+      {
+        "command": "codecloud.evaluateToCaret",
+        "key": "ctrl+alt+enter",
+        "when": "editorTextFocus && editorLangId == clojure && codecloud.inCloud && !calva:keybindingsEnabled && !calva:connected"
+      },
+      {
+        "command": "codecloud.evaluateTopLevelFormToCaret",
+        "key": "shift+alt+enter",
+        "when": "editorTextFocus && editorLangId == clojure && codecloud.inCloud && !calva:keybindingsEnabled && !calva:connected"
+      },
+      {
+        "command": "codecloud.evaluateFileToCaret",
+        "key": "ctrl+shift+alt+enter",
+        "when": "editorTextFocus && editorLangId == clojure && codecloud.inCloud && !calva:keybindingsEnabled && !calva:connected"
+      },
+      {
+        "command": "codecloud.loadFile",
+        "key": "ctrl+alt+c enter",
+        "when": "editorTextFocus && editorLangId == clojure && codecloud.inCloud && !calva:keybindingsEnabled && !calva:connected"
+      },
+      {
+        "command": "codecloud.loadFileWithRequires",
+        "key": "ctrl+alt+c shift+enter",
+        "when": "editorTextFocus && editorLangId == clojure && codecloud.inCloud && !calva:keybindingsEnabled && !calva:connected"
+      },
+      {
+        "command": "codecloud.interruptEvaluations",
+        "key": "ctrl+alt+c ctrl+alt+d",
+        "when": "editorTextFocus && editorLangId == clojure && codecloud.inCloud && !calva:keybindingsEnabled && !calva:connected"
+      },
+      {
+        "command": "codecloud.clearInlineResults",
+        "key": "escape",
+        "when": "codecloud.hasInlineResults && editorTextFocus && editorLangId == clojure && !editorHasSelection && !editorHasMultipleSelections && !editorReadOnly && !selectionAnchorSet && !hasOtherSuggestions && !suggestWidgetVisible && !parameterHintsVisible && !inlineSuggestionVisible && !findWidgetVisible && !inSnippetMode"
       }
     ],
     "configuration": {
@@ -233,22 +373,205 @@
         },
         "codecloud.sky": {
           "type": "string",
-          "default": "auto",
-          "enum": [
-            "auto",
-            "day",
-            "twilight",
-            "night",
-            "clock"
+          "default": "simple",
+          "anyOf": [
+            {
+              "enum": [
+                "simple",
+                "auto",
+                "day",
+                "twilight",
+                "night",
+                "clock",
+                "backrooms"
+              ],
+              "enumDescriptions": [
+                "A plain backdrop, folders as flat discs, and 30 frames a second, easy on large codebases and modest computers.",
+                "Follow the editor theme: a day sky with light themes and a night sky with dark ones.",
+                "Always a day sky.",
+                "Always a sunset sky, with night pages.",
+                "Always a night sky.",
+                "Follow the local time of day, with dusk and dawn between.",
+                "Yellow wallpaper, damp carpet, and humming lights, room after room."
+              ]
+            },
+            {
+              "type": "string",
+              "description": "The name of a space in codecloud.spaces."
+            }
           ],
-          "enumDescriptions": [
-            "Follow the editor theme: a day sky with light themes and a night sky with dark ones.",
-            "Always a day sky.",
-            "Always a sunset sky, with night pages.",
-            "Always a night sky.",
-            "Follow the local time of day, with dusk and dawn between."
-          ],
-          "description": "The sky behind the cloud. The sky button in the cloud changes this setting too."
+          "markdownDescription": "What the cloud floats in. `simple` draws the least, for large codebases and modest computers, the skies draw clouds, sun, moon, and stars, `backrooms` draws an endless office, and the name of a space in `#codecloud.spaces#` draws that space. The sky button in the cloud changes this setting too, and resting the pointer on it lists every choice."
+        },
+        "codecloud.spaces": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Spaces for the cloud to float in, each one room or rooms in every direction, chosen from the sky button's list or named in `#codecloud.sky#`. Colors are written as `#rrggbb`, and each surface wears one of the patterns `plain`, `stripes`, `grid`, `tiles`, `checks`, `dots`, `carpet`, or `wallpaper`.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "What the sky button's list calls the space, and what codecloud.sky takes to choose it."
+              },
+              "layout": {
+                "type": "string",
+                "enum": [
+                  "room",
+                  "maze"
+                ],
+                "default": "room",
+                "enumDescriptions": [
+                  "One room around the cloud.",
+                  "Rooms in every direction, with walls placed at random between them."
+                ]
+              },
+              "light": {
+                "type": "string",
+                "enum": [
+                  "day",
+                  "twilight",
+                  "night",
+                  "clock",
+                  "theme"
+                ],
+                "default": "day",
+                "description": "Whether pages and panels take their day or night look, follow the time of day, or follow the editor theme."
+              },
+              "walls": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "color": {
+                    "type": "string",
+                    "description": "The surface's color, as #rrggbb."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "enum": [
+                      "plain",
+                      "stripes",
+                      "grid",
+                      "tiles",
+                      "checks",
+                      "dots",
+                      "carpet",
+                      "wallpaper"
+                    ],
+                    "default": "plain",
+                    "description": "What the surface wears."
+                  },
+                  "patternColor": {
+                    "type": "string",
+                    "description": "The color of the pattern's lines, tiles, or marks, as #rrggbb."
+                  },
+                  "patternScale": {
+                    "type": "number",
+                    "minimum": 0.25,
+                    "maximum": 8,
+                    "default": 1,
+                    "description": "How large the pattern is drawn, 1 being its usual size."
+                  }
+                }
+              },
+              "floor": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "color": {
+                    "type": "string",
+                    "description": "The surface's color, as #rrggbb."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "enum": [
+                      "plain",
+                      "stripes",
+                      "grid",
+                      "tiles",
+                      "checks",
+                      "dots",
+                      "carpet",
+                      "wallpaper"
+                    ],
+                    "default": "plain",
+                    "description": "What the surface wears."
+                  },
+                  "patternColor": {
+                    "type": "string",
+                    "description": "The color of the pattern's lines, tiles, or marks, as #rrggbb."
+                  },
+                  "patternScale": {
+                    "type": "number",
+                    "minimum": 0.25,
+                    "maximum": 8,
+                    "default": 1,
+                    "description": "How large the pattern is drawn, 1 being its usual size."
+                  }
+                }
+              },
+              "ceiling": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "color": {
+                    "type": "string",
+                    "description": "The surface's color, as #rrggbb."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "enum": [
+                      "plain",
+                      "stripes",
+                      "grid",
+                      "tiles",
+                      "checks",
+                      "dots",
+                      "carpet",
+                      "wallpaper"
+                    ],
+                    "default": "plain",
+                    "description": "What the surface wears."
+                  },
+                  "patternColor": {
+                    "type": "string",
+                    "description": "The color of the pattern's lines, tiles, or marks, as #rrggbb."
+                  },
+                  "patternScale": {
+                    "type": "number",
+                    "minimum": 0.25,
+                    "maximum": 8,
+                    "default": 1,
+                    "description": "How large the pattern is drawn, 1 being its usual size."
+                  }
+                }
+              },
+              "lamps": {
+                "type": [
+                  "string",
+                  "boolean"
+                ],
+                "description": "The color of the lamps in the ceiling, as #rrggbb, or false for none."
+              },
+              "haze": {
+                "type": "string",
+                "description": "The color the far parts of the space fade into, as #rrggbb."
+              },
+              "folders": {
+                "type": "string",
+                "enum": [
+                  "clouds",
+                  "discs",
+                  "none"
+                ],
+                "default": "clouds",
+                "description": "Whether folders gather in billowing clouds, in flat discs, or not at all."
+              }
+            }
+          }
         },
         "codecloud.editorColors": {
           "type": "boolean",
@@ -261,6 +584,53 @@
           "minimum": 0,
           "maximum": 400,
           "description": "Most commits the cloud's timeline offers."
+        },
+        "codecloud.agents.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Serve CodeCloud's tools to AI agents over MCP from a hub inside VS Code, which agents reach with a token. **CodeCloud: Connect an Agent** connects Claude Code, opencode, Codex, VS Code's own agents, or any other MCP client."
+        },
+        "codecloud.agents.address": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "markdownDescription": "The address the agent hub listens on. `127.0.0.1` keeps it to this computer; `0.0.0.0` lets agents in virtual machines, containers, or on other computers reach it, each still needing the token."
+        },
+        "codecloud.agents.port": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "markdownDescription": "The port the agent hub listens on. At `0` the hub takes a free port the first time and keeps it for the workspace, so connected agents find it again; another number asks for that port."
+        },
+        "codecloud.assistant.cacheLifetime": {
+          "type": "string",
+          "enum": [
+            "5m",
+            "1h"
+          ],
+          "enumDescriptions": [
+            "Five minutes. Writing to the cache costs 1.25 times the input price.",
+            "An hour. Writing costs twice the input price, which pays off when questions often come more than five minutes apart."
+          ],
+          "default": "5m",
+          "markdownDescription": "How long Anthropic keeps the assistant's conversation cached between turns. Reading from the cache costs a tenth of the input price or less, so each turn after the first pays mostly for what is new. CodeCloud's output channel shows the tokens each reply read from the cache."
+        },
+        "codecloud.agents.reporting": {
+          "type": "string",
+          "enum": [
+            "full",
+            "agents",
+            "brief",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Agents and their subagents report each file they start on and what they intend, and agents may leave pins and ask who else is at work.",
+            "Agents report each file and what they intend; subagents leave reporting to them.",
+            "Agents report once per task, without lines; subagents report nothing, and agents can no longer leave pins or ask who else is at work.",
+            "No agent reports, and the reporting tools are withdrawn."
+          ],
+          "default": "full",
+          "markdownDescription": "How much agents connected to the hub report about their work, also set from the Coworkers pane. Each report costs the agent tokens, so quieter levels cost less, and at every level the cloud still shows what agents read through the hub and the changes they make. Connected agents list their tools again at once; the hub's instructions reach agents that connect afterwards."
         }
       }
     }
@@ -277,6 +647,7 @@
     "@vscode/vsce": "4.0.0",
     "esbuild": "0.28.2",
     "three": "0.186.1",
+    "wavescope-mcp": "1.0.14",
     "web-tree-sitter": "0.27.1"
   }
 }

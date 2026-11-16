@@ -54,9 +54,7 @@
    (when (pos? (:parse-errors totals 0))
      (key-row [:span.swatch.swatch-parse-error "⚠"] "Parse error"))))
 
-(defn- line-rows
-  "Rows for the kinds of line in view."
-  [snapshot active-layers]
+(defn- line-rows [snapshot active-layers]
   (let [edges (scene/drawn-edges snapshot)
         quiet? #(contains? scene/quiet-edge-kinds (:kind %))
         quiet-kinds (into #{} (comp (filter quiet?) (map :kind)) edges)]
@@ -81,14 +79,17 @@
    ["Click code" "Edit it there, Esc to stop"]
    ["Ctrl+S" "Save while editing"]
    ["Ctrl+Enter" "Evaluate the form at the caret"]
+   ["Ctrl+Shift+Enter" "Evaluate the enclosing form"]
    ["Alt+Enter" "Evaluate the top-level form"]
-   ["Ctrl+Shift+Enter" "Load the file into the REPL"]
+   ["Ctrl+Alt+C Enter" "Load/evaluate current file"]
+   ["Ctrl+Alt+C Shift+Enter" "Load/evaluate current file and its requires/dependencies"]
    ["Double-click" "Fly there"]
    ["Ctrl or Alt drag" "Move a page"]
    ["/" "Find"]
    ["N" "Code or names"]
    ["A" "Arrange"]
    ["R" "REPL"]
+   ["Q" "Assistant"]
    ["[ ]" "Spacing"]
    ["?" "Legend"]])
 

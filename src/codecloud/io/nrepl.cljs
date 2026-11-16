@@ -3,26 +3,15 @@
   travel as bencode. A connection clones a session of its own on the
   server and passes each reply to the request whose id it carries."
   (:require ["net" :as net]
-            ["path" :as path]))
+            ["path" :as path]
+            [codecloud.io.task :as task]))
 
 ;; Bencode
 
-(def ^:private integer-mark (.charCodeAt "i" 0))
-(def ^:private list-mark (.charCodeAt "l" 0))
-(def ^:private dictionary-mark (.charCodeAt "d" 0))
-(def ^:private end-mark (.charCodeAt "e" 0))
-(def ^:private length-mark (.charCodeAt ":" 0))
-(def ^:private first-digit (.charCodeAt "0" 0))
-(def ^:private last-digit (.charCodeAt "9" 0))
-
-(defn- key-text
-  "A dictionary key as text: a keyword's name with its namespace."
-  [entry-key]
+(defn- key-text [entry-key]
   (if (keyword? entry-key) (subs (str entry-key) 1) (str entry-key)))
 
-(defn- encoded-pieces
-  "The Buffers that together bencode `value`."
-  [value]
+(defn- encoded-pieces [value]
   (cond
     (string? value) (let [text-bytes (js/Buffer.from value "utf8")]
                       [(js/Buffer.from (str (.-length text-bytes) ":")) text-bytes])
@@ -42,55 +31,95 @@
   [value]
   (js/Buffer.concat (into-array (encoded-pieces value))))
 
-(defn- decode-at
-  "[value offset-after] for the value bencoded at `offset` in `buffer`,
-  or nil when the buffer ends inside it. Text decodes as UTF-8 and
-  dictionary keys as keywords."
+(def ^:private integer-mark (.charCodeAt "i" 0))
+(def ^:private list-mark (.charCodeAt "l" 0))
+(def ^:private dictionary-mark (.charCodeAt "d" 0))
+(def ^:private end-mark (.charCodeAt "e" 0))
+(def ^:private length-mark (.charCodeAt ":" 0))
+(def ^:private first-digit (.charCodeAt "0" 0))
+(def ^:private last-digit (.charCodeAt "9" 0))
+
+(def empty-decoder
+  "A decoder that has read nothing."
+  {:waiting [] :waiting-length 0 :needed 1 :open []})
+
+(defn- read-token
+  "The bencode piece at `offset` as [:value value after], [:open frame
+  after], or [:close after], or [:short needed] when the buffer ends
+  inside it and would need `needed` bytes to hold it."
   [^js buffer offset]
-  (when (< offset (.-length buffer))
-    (let [mark (aget buffer offset)]
-      (cond
-        (= integer-mark mark)
-        (let [end (.indexOf buffer end-mark offset)]
-          (when-not (neg? end)
-            [(js/parseInt (.toString buffer "latin1" (inc offset) end) 10) (inc end)]))
+  (let [size (.-length buffer)
+        mark (aget buffer offset)]
+    (cond
+      (= integer-mark mark)
+      (let [end (.indexOf buffer end-mark offset)]
+        (if (neg? end)
+          [:short (inc size)]
+          [:value (js/parseInt (.toString buffer "latin1" (inc offset) end) 10) (inc end)]))
 
-        (= list-mark mark)
-        (loop [items (transient []) position (inc offset)]
-          (cond
-            (>= position (.-length buffer)) nil
-            (= end-mark (aget buffer position)) [(persistent! items) (inc position)]
-            :else (when-let [[item after] (decode-at buffer position)]
-                    (recur (conj! items item) after))))
+      (= list-mark mark) [:open {:kind :list :items []} (inc offset)]
+      (= dictionary-mark mark) [:open {:kind :dictionary :entries {} :key nil} (inc offset)]
+      (= end-mark mark) [:close (inc offset)]
 
-        (= dictionary-mark mark)
-        (loop [entries (transient {}) position (inc offset)]
-          (cond
-            (>= position (.-length buffer)) nil
-            (= end-mark (aget buffer position)) [(persistent! entries) (inc position)]
-            :else (when-let [[entry-key after-key] (decode-at buffer position)]
-                    (when-let [[entry-value after-value] (decode-at buffer after-key)]
-                      (recur (assoc! entries (keyword entry-key) entry-value) after-value)))))
+      (<= first-digit mark last-digit)
+      (let [colon (.indexOf buffer length-mark offset)]
+        (if (neg? colon)
+          [:short (inc size)]
+          (let [start (inc colon)
+                end (+ start (js/parseInt (.toString buffer "latin1" offset colon) 10))]
+            (if (<= end size)
+              [:value (.toString buffer "utf8" start end) end]
+              [:short end]))))
 
-        (<= first-digit mark last-digit)
-        (let [colon (.indexOf buffer length-mark offset)]
-          (when-not (neg? colon)
-            (let [start (inc colon)
-                  end (+ start (js/parseInt (.toString buffer "latin1" offset colon) 10))]
-              (when (<= end (.-length buffer))
-                [(.toString buffer "utf8" start end) end]))))
+      :else (throw (ex-info "The bytes are not bencode" {:offset offset :byte mark})))))
 
-        :else (throw (ex-info "The bytes are not bencode" {:offset offset :byte mark}))))))
+(defn- with-value
+  "[open finished] once `value` is whole, which joins the innermost open
+  list or dictionary, as a key or its value, or else is finished."
+  [open finished value]
+  (if-let [frame (peek open)]
+    [(conj (pop open)
+           (cond
+             (= :list (:kind frame)) (update frame :items conj value)
+             (nil? (:key frame)) (assoc frame :key (keyword value))
+             :else (-> frame (update :entries assoc (:key frame) value) (assoc :key nil))))
+     finished]
+    [open (conj finished value)]))
 
-(defn decode-all
-  "The whole values bencoded one after another at the start of `buffer`,
-  as :values, and the bytes after them as :remainder, which begin a value
-  still arriving."
-  [^js buffer]
-  (loop [values [] offset 0]
-    (if-let [[value after] (decode-at buffer offset)]
-      (recur (conj values value) after)
-      {:values values :remainder (.subarray buffer offset)})))
+(defn decode-chunk
+  "[values decoder] once `chunk` arrives. Bytes wait unread until they can
+  finish the piece they continue, so a long reply is read once."
+  [{:keys [waiting waiting-length needed open] :as decoder} ^js chunk]
+  (let [waiting (conj waiting chunk)
+        waiting-length (+ waiting-length (.-length chunk))]
+    (cond
+      (zero? (.-length chunk)) [[] decoder]
+      (< waiting-length needed) [[] {:waiting waiting :waiting-length waiting-length :needed needed :open open}]
+      :else
+      (let [^js buffer (if (= 1 (count waiting)) chunk (js/Buffer.concat (into-array waiting)))
+            size (.-length buffer)]
+        (loop [offset 0 open open finished []]
+          (if (= offset size)
+            [finished (assoc empty-decoder :open open)]
+            (let [[kind & found] (read-token buffer offset)]
+              (case kind
+                :value (let [[value after] found
+                             [open finished] (with-value open finished value)]
+                         (recur after open finished))
+                :open (let [[frame after] found]
+                        (recur after (conj open frame) finished))
+                :close (let [[after] found
+                             frame (peek open)]
+                         (when-not frame
+                           (throw (ex-info "The bytes are not bencode" {:offset offset})))
+                         (let [[open finished] (with-value (pop open) finished
+                                                           (if (= :list (:kind frame)) (:items frame) (:entries frame)))]
+                           (recur after open finished)))
+                :short (let [[short-needed] found
+                             ;; A copy, so the bytes already read can go.
+                             left (js/Buffer.from (.subarray buffer offset))]
+                         [finished {:waiting [left] :waiting-length (.-length left)
+                                    :needed (- short-needed offset) :open open}])))))))))
 
 ;; Connections
 
@@ -99,19 +128,16 @@
   middleware's quota, so one huge result cannot flood the view."
   32768)
 
-(defn done?
-  "True for the reply that ends a request."
-  [reply]
+(defn done? [reply]
   (boolean (some #(= "done" %) (:status reply))))
 
 (defn- deliver-replies!
-  "Passes every whole reply among the bytes received so far to the
-  request awaiting it, or to `on-unclaimed`, keeping a reply still
-  arriving for the next chunk."
+  "Passes every reply `chunk` completes to the request awaiting it, or to
+  `on-unclaimed`."
   [{:keys [state]} chunk on-unclaimed]
-  (let [{:keys [values remainder]} (decode-all (js/Buffer.concat #js [(:remainder @state) chunk]))]
-    (swap! state assoc :remainder remainder)
-    (doseq [reply values
+  (let [[replies decoder] (decode-chunk (:decoder @state) chunk)]
+    (swap! state assoc :decoder decoder)
+    (doseq [reply replies
             :when (map? reply)
             :let [id (:id reply)
                   on-reply (get-in @state [:awaiting id])]]
@@ -134,26 +160,15 @@
     (.write socket (encode sent))
     id))
 
-(defn- coded-error
-  "An Error with `message` whose code is `code`, as Node's own errors
-  carry."
-  [message code]
-  (js/Object.assign (js/Error. message) #js {:code code}))
-
 (defn connect
-  "Resolves to a connection to the nREPL server at `host` and `port`
-  holding a session of its own, or rejects when nothing answers there, or
-  when what answers does not clone a session within
-  `answer-milliseconds`, 5000 unless given, as an nREPL server would.
-  `on-close` gets the connection when it ends after opening, every
-  request still awaiting replies having had a last one with the status
-  connection-closed. `on-unclaimed` gets replies no request awaits, such
-  as output printed after an evaluation ended."
+  "Resolves to a connection with a session of its own, or rejects when
+  none is cloned within `answer-milliseconds`. Requests waiting when it
+  closes get a connection-closed reply."
   [{:keys [host port on-close on-unclaimed answer-milliseconds] :or {answer-milliseconds 5000}}]
   (js/Promise.
    (fn [resolve reject]
      (let [^js socket (.createConnection net #js {:host host :port port})
-           state (atom {:remainder (js/Buffer.alloc 0) :awaiting {} :sent 0 :session nil})
+           state (atom {:decoder empty-decoder :awaiting {} :sent 0 :session nil})
            connection {:socket socket :state state :host host :port port}
            settled? (atom false)
            give-up! (fn [error]
@@ -161,7 +176,7 @@
                         (reset! settled? true)
                         (.destroy socket)
                         (reject error)))
-           timer (js/setTimeout #(give-up! (coded-error (str "No nREPL answer on port " port) "NREPL_SILENT"))
+           timer (js/setTimeout #(give-up! (task/coded-error (str "No nREPL answer on port " port) "NREPL_SILENT"))
                                 answer-milliseconds)]
        (.on socket "data" (fn [chunk]
                             (try
@@ -178,7 +193,7 @@
                   (on-reply {:id id :status ["done" "connection-closed"]})))
               (if (:session @state)
                 (when on-close (on-close connection))
-                (give-up! (coded-error "The connection closed before a session opened" "NREPL_SILENT")))))
+                (give-up! (task/coded-error "The connection closed before a session opened" "NREPL_SILENT")))))
        (.on socket "connect"
             (fn []
               (request! connection {:op "clone"}
@@ -218,9 +233,7 @@
   [connection interrupt-id on-reply]
   (request! connection {:op "interrupt" :interrupt-id interrupt-id} on-reply))
 
-(defn close!
-  "Closes the session on the server, then the connection."
-  [{:keys [^js socket] :as connection}]
+(defn close! [{:keys [^js socket] :as connection}]
   (when-not (or (.-destroyed socket) (.-writableEnded socket))
     (request! connection {:op "close"} (fn [_reply] nil))
     (.end socket)))

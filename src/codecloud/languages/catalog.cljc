@@ -1,13 +1,10 @@
 (ns codecloud.languages.catalog
   "The languages CodeCloud knows, shared by host and view. A file's
   language comes from its name, then its extension, then its shebang.
-
   Each language has :id, :label, :tag, :extensions, :file-names,
-  :shebangs, :line-comment, :project-markers, the :words the overlay uses,
-  and :cycles (:error, :warning, or :allowed). Optional keys:
-  :analyzed?, true when an adapter reads its imports and definitions,
-  :syntax-tree?, true when that adapter reads through tree-sitter, and
-  :family, the language whose hue and module loading it shares."
+  :shebangs, :line-comment, :project-markers, :words, and :cycles, and
+  may be :analyzed?, read through :syntax-tree?, and name a :family
+  whose hue and module loading it shares."
   (:require [clojure.string :as string]
             [codecloud.model.source :as source]))
 
@@ -157,8 +154,8 @@
 (def by-id (into {} (map (juxt :id identity)) languages))
 
 (def plain
-  "What a file of a type no language claims reads as: a page with its
-  text, sized and searchable, and no edges."
+  "What a file of a type no language claims reads as, which is a page with
+  its text, sized and searchable, and no edges."
   {:id :plain :label "Text" :tag "txt"
    :extensions #{} :file-names #{} :shebangs #{}
    :line-comment nil
@@ -232,8 +229,8 @@
   (boolean (:analyzed? (language language-id))))
 
 (defn cycle-severity
-  "How loud an import cycle among files of `language-id` is: :error,
-  :warning, or :allowed."
+  "How loud an import cycle among files of `language-id` is, one of
+  :error, :warning, and :allowed."
   [language-id]
   (:cycles (language language-id)))
 

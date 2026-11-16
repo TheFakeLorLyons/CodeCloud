@@ -33,10 +33,7 @@
          (get sky-colors token-kind)
          (:text sky-colors)))))
 
-(defn bracket-color
-  "Hex color of a bracket at nesting `depth` on `sky`, or nil when brackets
-  share one color."
-  [code-colors sky depth]
+(defn bracket-color [code-colors sky depth]
   (let [levels (get-in code-colors [sky :bracket-levels])]
     (when (seq levels)
       (nth levels (mod depth (count levels))))))
@@ -58,10 +55,9 @@
    :bracket ["punctuation.section.brackets" "punctuation"]})
 
 (def ^:private language-kind-scopes
-  "Scopes for the kinds a family's grammar names its own way. Clojure's
-  grammar scopes def forms and ns as keyword.control and its other special
-  forms as storage.control, so pages use the first for both, and it
-  leaves reader macros and discards unscoped."
+  "Scopes for the kinds a family's grammar names its own way, as Clojure's
+  scopes def forms and ns as keyword.control and its other special forms
+  as storage.control."
   {:clojure {:keyword ["constant.keyword"]
              :special ["keyword.control" "storage.control"]
              :definition ["entity.global"]
@@ -83,8 +79,8 @@
    ["variables" ["variable" "entity.name.variable"]]])
 
 (def ^:private editor-defaults
-  "The editor's own colors for a dark or light theme that leaves them
-  out: code's foreground and background, and the first three bracket pair
+  "The editor's own colors for a dark or light theme that leaves them out,
+  code's foreground and background and the first three bracket pair
   colors."
   {:dark {:foreground "#d4d4d4" :background "#1e1e1e" :brackets ["#ffd700" "#da70d6" "#179fff"]}
    :light {:foreground "#000000" :background "#ffffff" :brackets ["#0431fa" "#319331" "#7b3814"]}})
@@ -108,10 +104,7 @@
         (and background (< opacity 1)) (palette/mix-rgb background rgb opacity)
         :else rgb))))
 
-(defn- prefix-depth
-  "How many dotted names `selector` has when it names `scope` or a scope
-  `scope` refines, else nil."
-  [selector scope]
+(defn- prefix-depth [selector scope]
   (when (or (= selector scope) (string/starts-with? scope (str selector ".")))
     (inc (count (re-seq #"\." selector)))))
 
@@ -152,9 +145,7 @@
                        matching)]
     (when (get merged "foreground") merged)))
 
-(defn- font-flags
-  "{:italic? :bold?} of a rule's fontStyle, a list of words."
-  [font-style]
+(defn- font-flags [font-style]
   (let [words (set (re-seq #"[a-z]+" (if (string? font-style) font-style "")))]
     {:italic? (contains? words "italic") :bold? (contains? words "bold")}))
 
@@ -173,8 +164,8 @@
               (re-seq #"\[([^\]]*)\]" block-key)))))
 
 (defn- for-theme
-  "The parts of a customization for theme `theme-id`: its settings outside
-  [Theme] blocks, then each block naming the theme."
+  "The parts of a customization for theme `theme-id`, its settings outside
+  [Theme] blocks followed by each block naming the theme."
   [customization theme-id]
   (let [block-key? #(string/starts-with? % "[")
         settings (if (map? customization) customization {})]
@@ -202,9 +193,8 @@
 
 (def ^:private glass-references
   "Per sky, the lightness of plain gray page glass, about which theme
-  colors turn, and the page glass of least contrast with code: the
-  darkest by day and the lightest by night, cycles and parse errors
-  included."
+  colors turn, and the page glass of least contrast with code, cycles and
+  parse errors included."
   (into {}
         (map (fn [sky]
                (let [;; Glass is darkest and lightest at the ends of a blend's
@@ -221,7 +211,7 @@
         [:day :night]))
 
 (defn- least-contrast
-  "The WCAG contrast a kind keeps against any page's glass: 4.5 for plain
+  "The WCAG contrast a kind keeps against any page's glass, 4.5 for plain
   text, as for body text on the web, less for line numbers, brackets, and
   discards, and 3 for the rest."
   [token-kind]
@@ -248,9 +238,9 @@
             :else (recur middle far (dec remaining))))))))
 
 (defn- fitted-hex
-  "Hex of theme color `rgb` on `sky`: kept when the theme is as dark as
-  the sky, else mirrored about the sky's glass at its distance from the
-  theme's background, then moved until it reaches `least` contrast."
+  "Hex of theme color `rgb` on `sky`, kept when the theme is as dark as
+  the sky, and else mirrored about the sky's glass at its distance from
+  the theme's background, then moved until it reaches `least` contrast."
   [rgb {:keys [dark? background-lightness]} sky least]
   (let [[lightness chroma hue] (color/rgb->oklch rgb)
         placed (if (= dark? (= :night sky))

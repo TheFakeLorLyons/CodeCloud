@@ -1,12 +1,14 @@
 (ns codecloud.render.folders
   "Folder clouds as one mesh of puffs following the pages, lit from above
   and tinted toward each folder's hue. Billows spread over a sphere, so a
-  cloud is round from every side."
+  cloud is round from every side. An environment light to draw shows each
+  folder as one flat disc instead, or shows none."
   (:require ["three" :as three]
             [codecloud.presentation.color :as color]
             [codecloud.presentation.layout :as layout]
             [codecloud.presentation.palette :as palette]
-            [codecloud.presentation.sky :as sky]
+            [codecloud.presentation.sky-state :as sky-state]
+            [codecloud.render.planes :as planes]
             [codecloud.render.shaders :as shaders]))
 
 (def ^:private puff-attributes
@@ -29,7 +31,8 @@
         :depthWrite false
         :depthTest false
         :uniforms #js {:time #js {:value 0.0}
-                       :motion #js {:value 1.0}}}))
+                       :motion #js {:value 1.0}
+                       :plain #js {:value 0.0}}}))
 
 (defn create-layer [^js scene]
   {:scene scene
@@ -38,14 +41,7 @@
    :capacity (atom 0)
    :tints (atom {})})
 
-(defn- dynamic-attribute [item-size vertex-count]
-  (let [^js buffer (three/BufferAttribute. (js/Float32Array. (* item-size vertex-count)) item-size)]
-    (.setUsage buffer three/DynamicDrawUsage)
-    buffer))
-
-(defn- puff-geometry
-  "Room for `puff-capacity` puffs, four corners each."
-  [puff-capacity]
+(defn- puff-geometry [puff-capacity]
   (let [vertex-count (* 4 puff-capacity)
         corners (js/Float32Array. (* 2 vertex-count))
         indices (js/Uint32Array. (* 6 puff-capacity))
@@ -59,7 +55,7 @@
       (doseq [[slot corner-index] (map-indexed vector [0 1 2 0 2 3])]
         (aset indices (+ (* 6 puff) slot) (+ (* 4 puff) corner-index))))
     (doseq [[attribute-name item-size] puff-attributes]
-      (.setAttribute geometry attribute-name (dynamic-attribute item-size vertex-count)))
+      (.setAttribute geometry attribute-name (planes/dynamic-attribute three/BufferAttribute item-size vertex-count)))
     (.setAttribute geometry "corner" (three/BufferAttribute. corners 2))
     (.setIndex geometry (three/BufferAttribute. indices 1))
     geometry))
@@ -108,8 +104,8 @@
     {:center center :radius radius}))
 
 (defn- folder-puffs
-  "Puffs of one folder as {:center :size :seed :alpha}: one in the
-  middle, billows around the rim, and one behind each page."
+  "Puffs of one folder as {:center :size :seed :alpha}, one in the middle,
+  billows around the rim, and one behind each page."
   [path members {:keys [center radius]} alpha]
   (let [presence (reduce max 0 (map :presence members))
         [center-x center-y center-z] center
@@ -143,6 +139,18 @@
                    :alpha (* 0.8 alpha presence)}]
     (concat [core-puff] rim-puffs member-puffs)))
 
+(defn- disc-puff
+  "The one flat disc standing for a folder, a little wider than its pages
+  and fainter than a cloud."
+  [path members {:keys [center radius]} alpha]
+  (let [reach 1.12
+        disc-share 0.5
+        presence (reduce max 0 (map :presence members))]
+    {:center center
+     :size (* reach radius)
+     :seed (seeded path "core")
+     :alpha (* disc-share alpha presence)}))
+
 (def ^:private dusk-rgb
   "The warm light and mauve shade sunset lends every folder cloud."
   {:light (color/oklch->rgb (palette/color-of :dusk :cloud))
@@ -158,7 +166,7 @@
                  (let [computed (palette/folder-cloud-rgb hue tint)]
                    (swap! tints assoc path {:tinted [hue tint] :colors computed})
                    computed))]
-    (let [dusk (sky/dusk-amount night)
+    (let [dusk (sky-state/dusk-amount night)
           ;; Sunset lights a cloud warm and shades it mauve, short of
           ;; hiding its folder's color.
           dusk-share 0.4]
@@ -198,16 +206,12 @@
                    :extent (folder-extent members)})))
         folders))
 
-(defn- cloud-alpha
-  "Opacity of the clouds, firmer by day, faded together by `presence`."
-  [night presence]
+(defn- cloud-alpha [night presence]
   (let [day-alpha 0.92
         night-alpha 0.6]
     (* (or presence 1) (+ day-alpha (* night (- night-alpha day-alpha))))))
 
-(defn- write-corners!
-  "Writes one attribute's `values` into the four corners of a puff."
-  [^js array puff-index values]
+(defn- write-corners! [^js array puff-index values]
   (let [item-size (count values)
         first-vertex (* 4 puff-index)]
     (dotimes [corner 4]
@@ -251,22 +255,25 @@
     (.setDrawRange geometry 0 (* 6 puff-count))))
 
 (defn update-folders!
-  "Rebuilds every puff from this frame's page positions. `folders` maps
-  paths to {:members [{:id :position :radius :presence}] :emphasis :hue},
-  and `tint` says how strongly clouds take their hues. Returns each
-  folder's {:center :radius}."
-  [{:keys [^js material mesh] :as layer} {:keys [folders tint presence night time motion]}]
+  "Rebuilds every puff from this frame's page positions, each folder shown
+  as `look` says, :clouds, :discs, or :none, returning each folder's
+  {:center :radius}."
+  [{:keys [^js material mesh] :as layer} {:keys [folders tint presence night time motion look]}]
   (let [base-alpha (cloud-alpha night presence)
         ;; A dimmed folder's cloud stays faintly in view.
         least-emphasis 0.35
-        clouds (mapv (fn [{:keys [path members extent emphasis] :as cloud}]
-                       (assoc cloud :puffs (vec (folder-puffs path members extent
-                                                              (* base-alpha (max least-emphasis emphasis))))))
-                     (folder-clouds layer folders tint night))]
+        puffs-of (fn [{:keys [path members extent emphasis]}]
+                   (let [alpha (* base-alpha (max least-emphasis emphasis))]
+                     (case look
+                       :none []
+                       :discs [(disc-puff path members extent alpha)]
+                       (vec (folder-puffs path members extent alpha)))))
+        clouds (mapv #(assoc % :puffs (puffs-of %)) (folder-clouds layer folders tint night))]
     (ensure-capacity! layer (reduce + 0 (map (comp count :puffs) clouds)))
     (when-let [^js puff-mesh @mesh]
       (write-puffs! (.-geometry puff-mesh) clouds)
       (let [^js uniforms (.-uniforms material)]
         (set! (.-value (.-time uniforms)) time)
-        (set! (.-value (.-motion uniforms)) motion)))
+        (set! (.-value (.-motion uniforms)) motion)
+        (set! (.-value (.-plain uniforms)) (if (= :discs look) 1.0 0.0))))
     (into {} (map (juxt :path :extent)) clouds)))

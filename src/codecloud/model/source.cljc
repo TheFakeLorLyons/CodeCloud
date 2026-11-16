@@ -21,20 +21,14 @@
     (let [lines (string/split normalized-text #"\n" -1)]
       (if (= "" (peek lines)) (pop lines) lines))))
 
-(defn line-count
-  "Number of lines an editor shows for normalized text."
-  [normalized-text]
+(defn line-count [normalized-text]
   (count (split-lines normalized-text)))
 
-(defn directory-of
-  "The folder part of a path, or \"\" for a path in no folder."
-  [path]
+(defn directory-of [path]
   (let [slash-index (string/last-index-of path "/")]
     (if (and slash-index (pos? slash-index)) (subs path 0 slash-index) "")))
 
-(defn file-name
-  "The last segment of a path."
-  [path]
+(defn file-name [path]
   (subs path (inc (or (string/last-index-of path "/") -1))))
 
 (defn file-extension

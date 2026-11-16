@@ -6,14 +6,16 @@
   "Vector of the items whose `key-fn` value has not appeared before,
   keeping the first item for each key in its original order."
   [key-fn items]
-  (second
-   (reduce (fn [[seen-keys kept-items] item]
-             (let [item-key (key-fn item)]
-               (if (contains? seen-keys item-key)
-                 [seen-keys kept-items]
-                 [(conj seen-keys item-key) (conj kept-items item)])))
-           [#{} []]
-           items)))
+  (let [seen-keys (volatile! (transient #{}))]
+    (persistent!
+     (reduce (fn [kept-items item]
+               (let [item-key (key-fn item)]
+                 (if (contains? @seen-keys item-key)
+                   kept-items
+                   (do (vswap! seen-keys conj! item-key)
+                       (conj! kept-items item)))))
+             (transient [])
+             items))))
 
 (defn clamp
   "Limits a number to the closed range from `low` to `high`."

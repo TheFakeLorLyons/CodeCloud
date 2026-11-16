@@ -1,10 +1,11 @@
 (ns codecloud.render.hud.arrange
-  "The arrange panel: placement, headers, color layers, code colors,
-  spacing, and putting moved pages back."
+  "The arrange panel, setting placement, headers, color layers, code
+  colors, and spacing, and putting moved pages back."
   (:require [codecloud.presentation.arrangement :as arrangement]
             [codecloud.presentation.pairing :as pairing]
             [codecloud.presentation.ui-state :as ui-state]
             [codecloud.render.dom :as dom]
+            [codecloud.render.hud.dock :as dock]
             [codecloud.render.hud.swatches :as swatches]
             [codecloud.render.icons :as icons]))
 
@@ -17,9 +18,7 @@
 (defn- slider->spread [position]
   (js/Math.exp position))
 
-(defn- option-buttons
-  "Buttons choosing one of `options` by :key."
-  [dispatch options chosen-key event-kind]
+(defn- option-buttons [dispatch options chosen-key event-kind]
   [:div.option-grid {:role "group"}
    (for [{option-key :key :keys [label description]} options]
      [:button.option {:class (when (= option-key chosen-key) "is-on")
@@ -118,6 +117,7 @@
   (list
    [:header.panel-header
     [:h2 "Arrange"]
+    (dock/minimize-button dispatch :arrange)
     [:button.icon-button {:aria-label "Close" :on-click #(dispatch [:toggle-arrange-panel])} icons/close]]
    [:section.arrange-section
     [:h3 "Place pages by"]

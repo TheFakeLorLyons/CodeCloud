@@ -1,14 +1,14 @@
 (ns codecloud.render.gestures
-  "Pointer and keyboard input: picking, orbiting, panning, zooming toward
-  the pointer, diving into the editor, carrying pages, and pointing into
-  code to edit it. Keys reach the state through :dispatch!."
+  "Pointer and keyboard input, for picking, orbiting, panning, zooming
+  toward the pointer, diving into the editor, carrying pages, and
+  pointing into code to edit it. Keys reach the state through :dispatch!."
   (:require ["three" :as three]
-            [codecloud.presentation.editing :as text-editing]
+            [codecloud.presentation.editing-state :as editing-state]
             [codecloud.presentation.page :as page]
             [codecloud.presentation.ui-state :as ui-state]
             [codecloud.presentation.zoom :as zoom]
             [codecloud.render.camera :as camera]
-            [codecloud.render.editing :as editing]
+            [codecloud.render.editing-view :as editing-view]
             [codecloud.render.flights :as flights]
             [codecloud.render.navigation :as navigation]
             [codecloud.render.pages :as pages]
@@ -59,8 +59,8 @@
       {:kind :folder :path path :point center})))
 
 (defn pick
-  "What lies under a pointer position: a line of code, a page, or a folder
-  cloud, preferring pages."
+  "What lies under a pointer position, a line of code, a page, or a folder
+  cloud, pages first."
   [app ndc-x ndc-y]
   (or (page-hit app (camera/pointer-ray app ndc-x ndc-y))
       (folder-hit app)))
@@ -92,14 +92,19 @@
         page-pixels 800]
     (* (.-deltaY event) (case (.-deltaMode event) 1 line-pixels 2 page-pixels 1))))
 
+(defn- release-follow! [app]
+  (when (get-in @(:state app) [:presence :following])
+    (dispatch! app [:stop-following])))
+
 (defn- note-interaction!
   "Records that the viewer took the camera, which ends an arrival from
-  the editor and any pending reframing."
+  the editor, any pending reframing, and following an agent."
   [app]
   (swap! (:frame app) #(-> %
                            (assoc :last-interaction (js/performance.now) :user-moved? true)
                            (dissoc :arrival)
-                           (assoc-in [:pointer :moved?] true))))
+                           (assoc-in [:pointer :moved?] true)))
+  (release-follow! app))
 
 (defn- on-wheel
   "Zooms toward the pointer. Over code, zooming stops where the code
@@ -143,9 +148,7 @@
   [app {:keys [node origin] :as hit}]
   (and (readable-code? hit) (ui-state/editable? @(:state app) node (:path origin))))
 
-(defn- editing-buffer
-  "The buffer being edited, with its :path, or nil."
-  [app]
+(defn- editing-buffer [app]
   (let [{:keys [editing buffers]} @(:state app)]
     (get buffers (:path editing))))
 
@@ -157,17 +160,16 @@
         path (:path origin)]
     (or (get-in state [:buffers path])
         (when-let [source-text (some #(when (= path (:path %)) (:text %)) (ui-state/source-of state id))]
-          (assoc (text-editing/buffer source-text) :path path)))))
+          (assoc (editing-state/buffer source-text) :path path)))))
 
 (defn- begin-editing-at!
-  "Puts the caret into the code under `hit`, selecting the word or line
-  there when `select` says so, and stops any flight of the camera, such
-  as the draw back after arriving from a file, so the code stays the size
-  it was clicked at. Returns true when editing began."
+  "Puts the caret into the code under `hit`, selecting a word or line as
+  `select` says, and stops any camera flight so the code stays the size
+  it was clicked at. True when editing began."
   [app {:keys [id page origin local] :as hit} select]
   (let [path (:path origin)
         buffer (buffer-under app hit)
-        position (when buffer (editing/text-position page local buffer false))
+        position (when buffer (editing-view/text-position page local buffer false))
         {:keys [columns rows]} (get-in page [:visual :geometry])]
     (when position
       (navigation/cancel-flight! (:controller app))
@@ -190,9 +192,7 @@
       (let [^js offset (.sub meeting center)]
         [(.dot offset right) (.dot offset up)]))))
 
-(defn- on-edited-page?
-  "True when `hit` lands below the name band of the page being edited."
-  [app {:keys [id page local]}]
+(defn- on-edited-page? [app {:keys [id page local]}]
   (let [{:keys [editing]} @(:state app)]
     (and (= id (:namespace-id editing))
          (editing-buffer app)
@@ -215,14 +215,13 @@
     presses))
 
 (defn- start-selecting!
-  "Places the caret where the pointer went down on the page being edited,
-  extending the selection with Shift, or picks a word on the second press
-  and a line on the third; dragging then extends the selection. Stops any
-  flight of the camera, as starting to edit does."
+  "Places the caret where the pointer went down, extending the selection
+  with Shift, or picks a word on the second press and a line on the
+  third; dragging extends it."
   [app {:keys [page local]} ^js event presses]
   (navigation/cancel-flight! (:controller app))
   (let [buffer (editing-buffer app)
-        position (editing/text-position page local buffer true)]
+        position (editing-view/text-position page local buffer true)]
     (case presses
       1 (dispatch! app [:edit :place position (.-shiftKey event)])
       2 (dispatch! app [:edit :select-word position])
@@ -231,26 +230,24 @@
     (typing/focus! (:input app))))
 
 (defn text-cursor?
-  "True when the pointer over `hit` points into text: code that a click
-  can edit, or the page being edited."
+  "True when the pointer over `hit` points into text, as it does over code
+  a click can edit and over the page being edited."
   [app hit]
   (boolean (and hit (or (editable-code? app hit) (on-edited-page? app hit)))))
 
-(defn- extend-selection!
-  "Extends the selection to the text nearest the pointer."
-  [app]
+(defn- extend-selection! [app]
   (let [{:keys [ndc-x ndc-y]} (:pointer @(:frame app))
         {:keys [editing]} @(:state app)
         buffer (editing-buffer app)]
     (when-let [page-object (when buffer (pages/page-of (:page-layer app) (:namespace-id editing)))]
       (when-let [local (page-plane-local app page-object ndc-x ndc-y)]
-        (dispatch! app [:edit :place (editing/text-position page-object local buffer true) true])))))
+        (dispatch! app [:edit :place (editing-view/text-position page-object local buffer true) true])))))
 
 ;; Carrying a page
 
 (defn- carry-modifier?
-  "True when the pointer goes down with the key that picks pages up:
-  Ctrl, Cmd on macOS, or Alt."
+  "True when the pointer goes down with the key that picks pages up, Ctrl,
+  Cmd on macOS, or Alt."
   [^js event]
   (or (.-ctrlKey event) (.-metaKey event) (.-altKey event)))
 
@@ -265,9 +262,9 @@
   code, returning true when there was a name to ask about."
   [app {:keys [id node page origin local] :as hit}]
   (when-let [buffer (buffer-under app hit)]
-    (let [position (editing/text-position page local buffer false)
+    (let [position (editing-view/text-position page local buffer false)
           language (some #(when (= (:path origin) (:path %)) (:language %)) (:files node))
-          [[line start] [_ end]] (text-editing/word-range buffer position language)
+          [[line start] [_ end]] (editing-state/word-range buffer position language)
           written (subs (nth (:lines buffer) line) start end)
           {:keys [x y]} (:pointer @(:frame app))]
       (when (re-find #"[A-Za-z_]" written)
@@ -321,9 +318,7 @@
           (swap! (:frame app) assoc-in [:carried :offset]
                  [(- meeting-x grab-x anchor-x) (- meeting-y grab-y anchor-y) (- meeting-z grab-z anchor-z)]))))))
 
-(defn- set-down-carried!
-  "Leaves the carried page where it is and remembers how far it moved."
-  [app]
+(defn- set-down-carried! [app]
   (when-let [{:keys [id offset]} (:carried @(:frame app))]
     (swap! (:frame app) dissoc :carried)
     (dispatch! app [:move-page id offset])))
@@ -383,6 +378,7 @@
             moved? (or (:moved? drag)
                        (> (js/Math.hypot (- (.-clientX event) start-x) (- (.-clientY event) start-y)) drag-threshold))]
         (when moved?
+          (release-follow! app)
           (if (or (= 2 button) (= 1 button) shift?)
             (navigation/pan! (:controller app) delta-x delta-y (camera/viewport-height app))
             (navigation/orbit! (:controller app) delta-x delta-y (camera/viewport-height app))))
@@ -406,10 +402,9 @@
     [:click-empty]))
 
 (defn- on-pointer-up
-  "Ends a selection, a drag, or a carry, or clicks. A click on readable
-  code that can be edited puts the caret there at once, and with Ctrl or
-  Cmd goes to the definition of the name there. Other left clicks wait a
-  moment, so a double-click's first half lifts nothing."
+  "Ends a selection, drag, or carry, or clicks. A click on editable code
+  places the caret at once, or with Ctrl or Cmd goes to a definition;
+  other clicks wait so a double-click's first half lifts nothing."
   [app ^js _event]
   (cond
     (:selecting @(:frame app)) (swap! (:frame app) dissoc :selecting)
@@ -478,6 +473,7 @@
                     ("n" "N") (dispatch! app [:toggle-display-mode])
                     ("a" "A") (dispatch! app [:toggle-arrange-panel])
                     ("r" "R") (dispatch! app [:toggle-repl])
+                    ("q" "Q") (dispatch! app [:toggle-assistant])
                     "?" (dispatch! app [:toggle-legend])
                     "[" (dispatch! app [:step-spread -1])
                     "]" (dispatch! app [:step-spread 1])

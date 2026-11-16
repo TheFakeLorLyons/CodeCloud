@@ -21,7 +21,7 @@
 
 (defn holding-pivot
   "How surely a page holds the pivot at the screen's middle and focus
-  distance: 1 while the camera rests on it, falling to 0 as it leaves."
+  distance, 1 while the camera rests on it and falling to 0 as it leaves."
   [{:keys [depth screen-x screen-y half-width-pixels half-height-pixels on-screen?]}
    {:keys [focus-distance viewport]}]
   (if (and on-screen? (> half-width-pixels 0) (> half-height-pixels 0))
@@ -55,8 +55,8 @@
       0)))
 
 (defn- clearing
-  "How far a page steps aside for the examined page: fully when nearer and
-  covering it, not at all once the camera moves on."
+  "How far a page steps aside for the examined page, fully when nearer and
+  covering it, and not at all once the camera moves on."
   [{:keys [id depth] :as measured-page} examined]
   (let [nearer-share 0.97
         full-cover 0.2]
@@ -66,9 +66,8 @@
 
 (defn page-opacity
   "{:opacity :see-through?} of a page this frame. Pages fade from the
-  pivot, dim when unrelated to the lift, and step aside for a lifted or
-  examined page behind them; past halfway aside, the pointer passes
-  through."
+  pivot, dim when unrelated to the lift, and step aside for a lifted page
+  behind them, letting the pointer through once mostly aside."
   [{:keys [id visual appearance depth pixels-per-unit] :as measured-page}
    {:keys [focus-distance lift-depth lifted-ids examined]}]
   (let [lifted? (contains? lifted-ids id)

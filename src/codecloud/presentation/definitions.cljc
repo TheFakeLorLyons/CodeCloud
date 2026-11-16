@@ -1,6 +1,6 @@
 (ns codecloud.presentation.definitions
-  "Where a name written on a page is defined among the pages shown: on the
-  page itself, or on the pages it uses that define the name, or failing
+  "Where a name written on a page is defined among the pages shown, on the
+  page itself, on the pages it uses that define the name, or failing
   both, on any page shown. Names match as code writes them, so a call to
   read finds Board::read."
   (:require [clojure.string :as string]))
@@ -13,7 +13,7 @@
 
 (defn- names-match?
   "True when `written`, a name as code writes it, can mean
-  `definition-name`: the same name, or the same last part."
+  `definition-name`, being the same name or ending in the same last part."
   [written definition-name]
   (or (= written definition-name) (= (last-part written) (last-part definition-name))))
 
@@ -27,10 +27,9 @@
       {:namespace-id id :path (or path (:path (first files))) :name definition-name :line line})))
 
 (defn choices
-  "Definitions `written` can mean when page `page-id` writes it, most
-  likely first: the page's own, then those on the pages it uses, the most
-  used first. Only when neither holds one come the other shown pages'.
-  At most `limit` of them."
+  "Definitions `written` can mean on page `page-id`, most likely first,
+  the page's own before those of pages it uses, then other shown pages',
+  at most `limit`."
   [snapshot page-id written limit]
   (let [namespaces (:namespaces snapshot)
         uses-of (fn [uses] (reduce + 0 (keep (fn [[definition-name use-count]]

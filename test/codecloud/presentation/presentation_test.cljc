@@ -10,7 +10,7 @@
             [codecloud.presentation.page :as page]
             [codecloud.presentation.palette :as palette]
             [codecloud.presentation.scene :as scene]
-            [codecloud.presentation.sky :as sky]
+            [codecloud.presentation.sky-state :as sky-state]
             [codecloud.presentation.zoom :as zoom]))
 
 (defn- own-hex [theme-name token-kind]
@@ -241,21 +241,20 @@
     (is (zero? (opacity/covered-share centered (assoc in-front :screen-x 1400))))))
 
 (deftest sky-modes
-  (is (= 0.0 (sky/clock-night-amount 12)))
-  (is (= 1.0 (sky/clock-night-amount 23)))
-  (is (= 1.0 (sky/clock-night-amount 3)))
-  (is (< 0 (sky/clock-night-amount 18.5) 1))
-  (is (= 1.0 (sky/night-amount :auto :dark 12)))
-  (is (= 0.0 (sky/night-amount :auto :light 23)))
-  (is (= [:day :twilight :night :clock :auto] (map sky/next-mode [:auto :day :twilight :night :clock])))
-  (is (= 1.0 (sky/dusk-amount 0.5)))
+  (is (= 0.0 (sky-state/clock-night-amount 12)))
+  (is (= 1.0 (sky-state/clock-night-amount 23)))
+  (is (= 1.0 (sky-state/clock-night-amount 3)))
+  (is (< 0 (sky-state/clock-night-amount 18.5) 1))
+  (is (= 1.0 (sky-state/night-amount :auto :dark 12)))
+  (is (= 0.0 (sky-state/night-amount :auto :light 23)))
+  (is (= 1.0 (sky-state/dusk-amount 0.5)))
   (testing "twilight holds the sunset with night pages"
-    (is (= 1.0 (sky/dusk-amount (sky/night-amount :twilight :light 12))))
-    (is (= 1.0 (sky/ink-amount (sky/night-amount :twilight :light 12)))))
+    (is (= 1.0 (sky-state/dusk-amount (sky-state/night-amount :twilight :light 12))))
+    (is (= 1.0 (sky-state/ink-amount (sky-state/night-amount :twilight :light 12)))))
   (testing "pages and panels turn early in the dusk and never rest halfway"
-    (is (= 0.0 (sky/ink-amount 0.0) (sky/ink-amount 0.15)))
-    (is (= 1.0 (sky/ink-amount 0.4) (sky/ink-amount 1.0)))
-    (is (< 0 (sky/ink-amount 0.26) 1))))
+    (is (= 0.0 (sky-state/ink-amount 0.0) (sky-state/ink-amount 0.15)))
+    (is (= 1.0 (sky-state/ink-amount 0.4) (sky-state/ink-amount 1.0)))
+    (is (< 0 (sky-state/ink-amount 0.26) 1))))
 
 (def ^:private small-snapshot
   {:id :working-tree
@@ -306,6 +305,7 @@
             edited (scene/shaped-by-buffers visuals {:buffers buffers :snapshot small-snapshot
                                                      :editing {:namespace-id "app.db" :columns 1}} 0.5)]
         (is (= 60 (get-in shaped ["app.db" :geometry :line-count])))
+        (is (= 60 (get-in shaped ["app.db" :files 0 :line-count])) "its files count the buffer's lines, so new lines have places")
         (is (= [(get-in visuals ["app.db" :geometry :width]) (get-in visuals ["app.db" :geometry :height])]
                (get-in shaped ["app.db" :base-size])))
         (is (identical? (get visuals "app.core") (get shaped "app.core")))

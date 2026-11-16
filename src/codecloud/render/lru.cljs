@@ -4,9 +4,7 @@
 (defn create []
   (atom {:entries {} :clock 0}))
 
-(defn- touched
-  "The cache with `cache-key` marked as used just now."
-  [{:keys [clock] :as cache-state} cache-key]
+(defn- touched [{:keys [clock] :as cache-state} cache-key]
   (-> cache-state
       (assoc-in [:entries cache-key :used] clock)
       (assoc :clock (inc clock))))

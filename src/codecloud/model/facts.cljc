@@ -24,12 +24,12 @@
   "Descriptions of the ways `facts` breaks the contract, empty when it
   keeps it."
   [facts]
-  (let [counted? (fn [value] (and (int? value) (not (neg? value))))
+  (let [natural? (fn [value] (and (int? value) (not (neg? value))))
         checks [[(string? (:path facts)) ":path must be a string."]
                 [(keyword? (:language facts)) ":language must be a keyword."]
                 [(string? (:unit-id facts)) ":unit-id must be a string."]
-                [(counted? (:line-count facts)) ":line-count must be a count."]
-                [(counted? (:longest-line facts)) ":longest-line must be a count."]
+                [(natural? (:line-count facts)) ":line-count must be a count."]
+                [(natural? (:longest-line facts)) ":longest-line must be a count."]
                 [(every? :target (:requirements facts)) "Every requirement needs a :target."]
                 [(every? #(and (string? (:name %)) (keyword? (:kind %))) (:definitions facts))
                  "Every definition needs a string :name and a keyword :kind."]

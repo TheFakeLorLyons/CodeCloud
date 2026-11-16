@@ -3,6 +3,7 @@
   writes the data files the browser harness draws."
   (:require ["path" :as path]
             [clojure.string :as string]
+            [codecloud.counting :refer [counted]]
             [codecloud.io.analyzer :as analyzer]
             [codecloud.io.files :as files]
             [codecloud.io.task :as task]
@@ -42,9 +43,6 @@
 (defn- padded [text width]
   (let [text (str text)]
     (if (>= (count text) width) text (str text (apply str (repeat (- width (count text)) " "))))))
-
-(defn- counted [value singular plural]
-  (str value " " (if (= 1 value) singular plural)))
 
 (defn- print-summary [snapshot-value top-count notices problems]
   (let [{:keys [totals namespaces cycles]} snapshot-value
@@ -162,7 +160,7 @@
                               (print-summary snapshot top notices problems)
                               (write-bundle! project-analyzer config folder-name options snapshot))))))
             (task/recover (fn [error]
-                            (println "CodeCloud failed:" (or (.-message error) error))
+                            (println "CodeCloud failed:" (task/error-text error))
                             (set! (.-exitCode js/process) 1))))))))
 
 (set! *main-cli-fn* main)

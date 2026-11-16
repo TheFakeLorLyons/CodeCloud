@@ -1,15 +1,13 @@
 (ns codecloud.presentation.wording
-  "Words for a cloud's pages, following its languages: namespaces for
-  Clojure, modules for Python or a mix."
+  "Words for a cloud's pages, following its languages, as namespaces for
+  Clojure and modules for Python or a mix."
   (:require [codecloud.languages.catalog :as catalog]))
 
-(defn languages-present
-  "Ids of the languages a snapshot's pages are in."
-  [snapshot]
+(defn languages-present [snapshot]
   (into (sorted-set) (map #(:language % :clojure)) (vals (:namespaces snapshot))))
 
 (defn unit-words
-  "[singular plural] naming a snapshot's pages: the word of its one
+  "[singular plural] naming a snapshot's pages, the word of its one
   language, or module when it holds several languages or none."
   [snapshot]
   (let [present (languages-present snapshot)]
@@ -18,8 +16,8 @@
       ["module" "modules"])))
 
 (defn node-words
-  "The words for a page's own language: its :unit, what it :uses, and
-  what it is :used-by."
+  "The words for a page's own language, its :unit, what it :uses, and what
+  it is :used-by."
   [node]
   (:words (catalog/language (:language node :clojure))))
 
@@ -33,9 +31,7 @@
               (str label " " (first (:unit words))))
     nil))
 
-(defn cycle-heading
-  "What the inspector calls a cycle of `severity`."
-  [severity]
+(defn cycle-heading [severity]
   (if (= :warning severity) "↻ Cyclic import" "↻ Cyclic dependency"))
 
 (defn cycle-explanation

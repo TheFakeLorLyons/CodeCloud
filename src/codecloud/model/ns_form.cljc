@@ -4,8 +4,8 @@
   (:require [codecloud.model.forms :as forms]))
 
 (defn- libspec?
-  "True for a libspec: a symbol, a module string, or a vector whose second
-  item is a keyword or absent."
+  "True for a libspec, which is a symbol, a module string, or a vector
+  whose second item is a keyword or absent."
   [form]
   (or (symbol? form)
       (string? form)
@@ -59,8 +59,7 @@
      :macros? (contains? #{:require-macros :use-macros} directive)
      :directive directive}))
 
-(defn- requirements-from-argument
-  [directive argument]
+(defn- requirements-from-argument [directive argument]
   (cond
     (libspec? argument)
     [(requirement-from-libspec directive nil argument)]
@@ -140,9 +139,7 @@
 
     :else nil))
 
-(defn- unquote-form
-  "The form inside (quote x), or nil for an argument computed at run time."
-  [form]
+(defn- unquote-form [form]
   (when (and (seq? form) (= 'quote (first form)))
     (second form)))
 
@@ -161,8 +158,8 @@
   "Map of alias string to target namespace for the requirements of one file."
   [requirements]
   (into {}
-        (keep (fn [{:keys [alias target]}]
-                (when alias [alias target])))
+        (keep (fn [{alias-name :alias :keys [target]}]
+                (when alias-name [alias-name target])))
         requirements))
 
 (defn refer-table

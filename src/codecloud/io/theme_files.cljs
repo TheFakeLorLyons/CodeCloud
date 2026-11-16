@@ -1,6 +1,6 @@
 (ns codecloud.io.theme-files
-  "Editor theme files read as data: a theme's workbench colors and its
-  TextMate rules, gathered through the files it includes."
+  "Editor theme files read as data, giving a theme's workbench colors and
+  its TextMate rules, gathered through the files it includes."
   (:require ["path" :as path]
             [codecloud.io.files :as files]
             [codecloud.io.task :as task]
@@ -15,9 +15,7 @@
     (catch :default _error
       (json/read-json text))))
 
-(defn- read-json-file
-  "Resolves to the data of a JSON file, or nil when it cannot be read."
-  [file-path]
+(defn- read-json-file [file-path]
   (task/then (files/read-text file-path) #(some-> % parsed)))
 
 (defn- rules-file-rules
@@ -30,9 +28,8 @@
 
 (defn read-theme
   "Resolves to {:colors :token-colors} of the theme file at `file-path`,
-  an included file's entries first so the including file's win, or nil
-  when the file cannot be read as a theme. Token colors kept in a
-  TextMate .tmTheme file are not read."
+  an including file's entries winning over included ones, or nil.
+  TextMate .tmTheme files are not read."
   [file-path]
   (let [most-includes 8]
     (letfn [(read-from [theme-path depth]

@@ -1,18 +1,13 @@
 (ns codecloud.languages.lexer
-  "One lexer for every language, driven by a lexicon. Strings and comments
-  open at a line's end continue on the next.
+  "One lexer for every language, driven by a lexicon. Strings and
+  comments open at a line's end continue on the next.
 
-  A lexicon holds :spans {:open :close :escape :kind}, :regions, anchored
-  :patterns [kind regex applies?] tried in order, :word-kind (word,
-  previous token, line, end index to kind), and :insignificant kinds. A
-  span without :close ends with its line, a :single-line? span ends there
-  regardless, and :allowed? checks the previous token.
-
-  A region {:open :lexicon :close :open-kind :close-kind} reads with its
-  own lexicon, :self, or one a function returns. A :close-before? region
-  leaves its close to the outer lexicon, :close-for builds the close from
-  the opening, :next-line? starts on the next line, and :then may open
-  another region on closing.")
+  A lexicon holds :spans {:open :close :escape :kind}, :regions, ordered
+  :patterns [kind regex applies?], a :word-kind function, and its
+  :insignificant kinds. A span without :close ends with its line. A
+  region {:open :lexicon :close :open-kind :close-kind} reads with a
+  lexicon of its own, and may leave its close to the outer lexicon,
+  build it from the opening, or open another region on closing.")
 
 (defn- at?
   "True when `text` starts at `index` of `line`, checked without copying
@@ -34,49 +29,35 @@
         (at? line index close) (+ index (count close))
         :else (recur (inc index))))))
 
-(defn- span-token
-  "[end text still-open?] for a span starting at `start` with its body at
-  `body-start`."
-  [line start body-start span]
+(defn- span-token [line start body-start span]
   (if-let [end (span-end line body-start span)]
     [end (subs line start end) false]
     [(count line) (subs line start) (not (:single-line? span))]))
 
-(defn- opening-span
-  "The span opening at `position` after `previous`, or nil."
-  [spans line position previous]
+(defn- opening-span [spans line position previous]
   (some (fn [span]
           (when (and (at? line position (:open span))
                      (if-let [allowed? (:allowed? span)] (allowed? previous) true))
             span))
         spans))
 
-(defn- matched-text
-  "The whole text a regex matched, whether it reported groups or not."
-  [found]
+(defn- matched-text [found]
   (if (string? found) found (first found)))
 
-(defn- matched-pattern
-  "[kind text] of the first pattern matching `remaining` after
-  `previous`, or nil."
-  [patterns remaining previous]
+(defn- matched-pattern [patterns remaining previous]
   (some (fn [[kind pattern applies?]]
           (when (or (nil? applies?) (applies? previous))
             (when-let [found (re-find pattern remaining)]
               [kind (matched-text found)])))
         patterns))
 
-(defn- opening-region
-  "[region found] for the first region opening `remaining`, or nil."
-  [regions remaining]
+(defn- opening-region [regions remaining]
   (some (fn [region]
           (when-let [found (re-find (:open region) remaining)]
             (when (seq (matched-text found)) [region found])))
         regions))
 
-(defn- with-top
-  "`frames` with the top frame replaced by `frame`."
-  [frames frame]
+(defn- with-top [frames frame]
   (assoc frames (dec (count frames)) frame))
 
 (defn- noted
@@ -87,10 +68,7 @@
     (and (nil? first-word) (not= :space kind)) (assoc :first-word text)
     (not (contains? (:insignificant lexicon) kind)) (assoc :previous [kind text])))
 
-(defn- region-frame
-  "The frame reading `region`, opened by `found` inside
-  `surrounding-lexicon`."
-  [region found surrounding-lexicon]
+(defn- region-frame [region found surrounding-lexicon]
   {:lexicon (let [named (:lexicon region)]
              (cond
                (= :self named) surrounding-lexicon
@@ -102,17 +80,13 @@
    :then (:then region)
    :opening (matched-text found)})
 
-(defn- entered
-  "`frames` once `region` opens, waiting for the next line when it says."
-  [frames region found]
+(defn- entered [frames region found]
   (let [frame (region-frame region found (:lexicon (peek frames)))]
     (if (:next-line? region)
       (with-top frames (assoc (peek frames) :pending frame))
       (conj frames frame))))
 
-(defn- open-pending
-  "`frames` with a region waiting for this line begun."
-  [frames]
+(defn- open-pending [frames]
   (if-let [pending (:pending (peek frames))]
     (conj (with-top frames (dissoc (peek frames) :pending)) pending)
     frames))
@@ -197,16 +171,12 @@
            [[] [{:lexicon lexicon}]]
            lines)))
 
-(defn tokenize-lines
-  "[kind text] tokens for each of `lines`."
-  [lexicon lines]
+(defn tokenize-lines [lexicon lines]
   (mapv :tokens (tokenize-lines-marked lexicon lines)))
 
 (defn- read-lines
-  "{:tokens :starts :rest :end} of `lines` from `first-index` on, reading
-  the first with `frames`, and stopping once `settled?` accepts a line
-  index and the frames it starts from. :rest is where reading stopped and
-  :end the frames after the last line read."
+  "{:tokens :starts :rest :end} of `lines` from `first-index`, stopping
+  once `settled?` accepts a line and the frames it starts from."
   [lines first-index frames settled?]
   (loop [index first-index
          frames frames
@@ -246,12 +216,12 @@
             unchanged-from (- new-count same-end)
             settled? (fn [index frames]
                        (and (>= index unchanged-from) (= frames (nth starts (- index shift)))))
-            read (read-lines lines first-changed
-                             (if (< first-changed old-count) (nth starts first-changed) (:end previous))
-                             settled?)
-            kept-from (min old-count (- (:rest read) shift))]
+            reread (read-lines lines first-changed
+                               (if (< first-changed old-count) (nth starts first-changed) (:end previous))
+                               settled?)
+            kept-from (min old-count (- (:rest reread) shift))]
         {:lexicon lexicon
          :lines lines
-         :tokens (into (into (subvec tokens 0 first-changed) (:tokens read)) (subvec tokens kept-from))
-         :starts (into (into (subvec starts 0 first-changed) (:starts read)) (subvec starts kept-from))
-         :end (if (< (:rest read) new-count) (:end previous) (:end read))}))))
+         :tokens (into (into (subvec tokens 0 first-changed) (:tokens reread)) (subvec tokens kept-from))
+         :starts (into (into (subvec starts 0 first-changed) (:starts reread)) (subvec starts kept-from))
+         :end (if (< (:rest reread) new-count) (:end previous) (:end reread))}))))

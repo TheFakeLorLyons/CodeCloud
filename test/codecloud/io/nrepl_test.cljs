@@ -2,7 +2,7 @@
   "Checks bencode against hand-written bytes, and the nREPL client against
   a stand-in server answering the way nREPL does."
   (:require ["net" :as net]
-            [cljs.test :refer [async deftest is testing]]
+            [cljs.test :refer [async deftest is]]
             [clojure.string :as string]
             [codecloud.io.nrepl :as nrepl]))
 
@@ -19,15 +19,44 @@
       "a keyword key keeps its namespace")
   (is (thrown? js/Error (nrepl/encode {:op 1.5}))))
 
+(defn- decoded
+  "The values `chunks` decode to, one after another, and the decoder
+  left."
+  [chunks]
+  (reduce (fn [[values decoder] chunk]
+            (let [[more next-decoder] (nrepl/decode-chunk decoder chunk)]
+              [(into values more) next-decoder]))
+          [[] nrepl/empty-decoder]
+          chunks))
+
 (deftest replies-arrive-in-any-pieces
-  (let [first-reply {:id "1" :value "λ 3" :ns "user" :versions {:nrepl {:major 1}}}
+  (let [first-reply {:id "1" :value "λ 3" :ns "user" :versions {:nrepl {:major 1}} :status ["done"] :sizes [12 -3 []]}
         second-reply {:id "1" :status ["done"]}
         bytes (js/Buffer.concat #js [(nrepl/encode first-reply) (nrepl/encode second-reply)])]
     (doseq [split (range (inc (.-length bytes)))]
-      (let [{early :values remainder :remainder} (nrepl/decode-all (.subarray bytes 0 split))
-            {late :values left :remainder} (nrepl/decode-all (js/Buffer.concat #js [remainder (.subarray bytes split)]))]
-        (is (= [first-reply second-reply] (into early late)) (str "split at byte " split))
-        (is (zero? (.-length left)))))))
+      (is (nil? (some (fn [later-split]
+                        (when (not= [[first-reply second-reply] nrepl/empty-decoder]
+                                    (decoded [(.subarray bytes 0 split) (.subarray bytes split later-split) (.subarray bytes later-split)]))
+                          later-split))
+                      (range split (inc (.-length bytes)))))
+          (str "split at byte " split " and any byte after it")))
+    (is (= [[first-reply second-reply] nrepl/empty-decoder] (decoded (map #(.subarray bytes % (inc %)) (range (.-length bytes)))))
+        "one byte at a time"))
+  (is (thrown? js/Error (nrepl/decode-chunk nrepl/empty-decoder (js/Buffer.from "x"))) "bytes that are not bencode"))
+
+(deftest a-long-reply-in-small-chunks-is-read-once
+  (let [long-text (apply str (repeat 400000 "λ"))
+        many-names (mapv #(str "name-" %) (range 40000))
+        bytes (js/Buffer.concat #js [(nrepl/encode {:id "1" :out long-text}) (nrepl/encode {:id "2" :completions many-names})])
+        chunk-size 512
+        chunks (map #(.subarray bytes % (min (.-length bytes) (+ % chunk-size))) (range 0 (.-length bytes) chunk-size))
+        started (js/Date.now)
+        [values decoder] (decoded chunks)
+        ;; Reading from the start again at each chunk takes seconds here.
+        most-milliseconds 2000]
+    (is (= [{:id "1" :out long-text} {:id "2" :completions many-names}] values))
+    (is (= nrepl/empty-decoder decoder))
+    (is (< (- (js/Date.now) started) most-milliseconds) "the bytes are read about once")))
 
 ;; A stand-in server
 
@@ -74,13 +103,13 @@
      (let [requests (atom [])
            ^js server (.createServer net
                                      (fn [^js socket]
-                                       (let [pending (atom (js/Buffer.alloc 0))
+                                       (let [decoder (atom nrepl/empty-decoder)
                                              running (atom nil)]
                                          (.on socket "error" (fn [_error] nil))
                                          (.on socket "data"
                                               (fn [chunk]
-                                                (let [{:keys [values remainder]} (nrepl/decode-all (js/Buffer.concat #js [@pending chunk]))]
-                                                  (reset! pending remainder)
+                                                (let [[values next-decoder] (nrepl/decode-chunk @decoder chunk)]
+                                                  (reset! decoder next-decoder)
                                                   (doseq [request values]
                                                     (swap! requests conj request)
                                                     (when answer? (answer! socket request running)))))))))]

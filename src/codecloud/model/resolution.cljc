@@ -22,25 +22,22 @@
         (recur (rest remaining) (conj result part)))
       (string/join "/" result))))
 
-(defn- ancestor-directories
-  "The folders holding `path`, nearest first, ending with the root."
-  [path]
+(defn- ancestor-directories [path]
   (loop [directory (directory-of path)
          found []]
     (if (string/blank? directory)
       (conj found "")
       (recur (directory-of directory) (conj found directory)))))
 
-(defn- first-present
-  "The first of `candidates` that is a file of the cloud."
-  [paths candidates]
+(defn- first-present [paths candidates]
   (some #(when (and % (contains? paths %)) %) candidates))
 
 ;; The project index
 
 (defn- python-roots
-  "Folders whose packages Python imports by absolute name: the root, src
-  and lib, and the folder of each Python project with its own src."
+  "Folders whose packages Python imports by absolute name, which are the
+  root, src and lib, and the folder of each Python project with its own
+  src."
   [paths manifests]
   (let [project-directories (into (sorted-set)
                                   (comp (filter #(re-find #"(?:^|/)(?:pyproject\.toml|setup\.cfg|setup\.py)$" %))
@@ -76,9 +73,9 @@
         manifests))
 
 (defn- absolute-folder-in-cloud
-  "The folder of the cloud an absolute path names: the longest run of its
-  last folders that is one, so a build file written on another machine
-  still points home."
+  "The folder of the cloud an absolute path names, found as the longest
+  run of its last folders that is one, so a build file written on another
+  machine still points home."
   [folders absolute]
   (let [segments (remove string/blank? (string/split absolute #"/"))]
     (some (fn [dropped]
@@ -87,8 +84,9 @@
           (range (count segments)))))
 
 (defn- include-folders
-  "The folders #include searches, as folders of the cloud: those the cloud
-  file lists under :include-paths, then those C and C++ build files name."
+  "The folders #include searches, as folders of the cloud, first those the
+  cloud file lists under :include-paths, then those C and C++ build files
+  name."
   [paths manifests include-paths]
   (let [folders (into #{} (mapcat ancestor-directories) paths)
         from-manifests (for [{:keys [path manifest]} manifests
@@ -101,11 +99,29 @@
     (vec (distinct (filter #(contains? folders %)
                            (concat (map #(joined "" %) include-paths) from-manifests))))))
 
+(defn- constructor-name?
+  "True for a C++ constructor or destructor, named after its own class,
+  whose uses are the class's."
+  [segments]
+  (let [own (peek segments)]
+    (and (> (count segments) 1)
+         (or (string/starts-with? own "~") (= own (peek (pop segments)))))))
+
+(defn- definitions-by-last-part
+  "{last-part [definition-name]} for `facts-list`, Board::read under read,
+  the part an including file writes. Constructors are left out."
+  [facts-list]
+  (reduce (fn [by-part definition-name]
+            (let [segments (string/split definition-name #"::")]
+              (if (constructor-name? segments)
+                by-part
+                (update by-part (peek segments) (fnil conj []) definition-name))))
+          {}
+          (into [] (comp (mapcat :definitions) (map :name) (distinct)) facts-list)))
+
 (defn project-index
-  "What resolvers need about the cloud: :paths, :unit-of, :language-of,
-  :units, :definition-names of each unit, :companion-of each header,
-  :module-paths of C++ module interfaces and partitions, :python-roots,
-  :script-configs, :packages, :include-folders, and :paths-by-file-name."
+  "What resolvers need to know about the cloud's files, units, languages,
+  and folders."
   ([file-facts manifests] (project-index file-facts manifests {}))
   ([file-facts manifests {:keys [include-paths]}]
    (let [paths (into #{} (map :path) file-facts)]
@@ -113,9 +129,9 @@
       :unit-of (into {} (map (juxt :path graph/node-id)) file-facts)
       :language-of (into {} (map (juxt :path #(:language % :clojure))) file-facts)
       :units (into #{} (map graph/node-id) file-facts)
-      :definition-names (into {}
-                              (map (fn [[unit facts-list]] [unit (into [] (comp (mapcat :definitions) (map :name)) facts-list)]))
-                              (group-by graph/node-id file-facts))
+      :definitions-by-last-part (into {}
+                                      (map (fn [[unit facts-list]] [unit (definitions-by-last-part facts-list)]))
+                                      (group-by graph/node-id file-facts))
       :companion-of (into {} (keep (fn [facts] (when-let [companion (:companion facts)] [(graph/node-id facts) companion])))
                           file-facts)
       :module-paths (into {}
@@ -142,8 +158,8 @@
       (first-present paths [(str base ".py") (str base "/__init__.py") (str base ".pyi") (str base "/__init__.pyi")]))))
 
 (defn- python-base
-  "[roots module] for a Python specifier: a relative import's package
-  folder, or the roots an absolute import searches."
+  "[roots module] for a Python specifier, the roots being a relative
+  import's package folder or those an absolute import searches."
   [{:keys [python-roots] :as index} path specifier]
   (let [dots (count (re-find #"^\.*" specifier))
         module-name (subs specifier dots)]
@@ -155,7 +171,7 @@
        module-name])))
 
 (defn- python-targets
-  "[{:path :names}] for a Python import: each submodule a from-import
+  "[{:path :names}] for a Python import, with each submodule a from-import
   names, and the module itself for names that are not submodules."
   [{:keys [paths] :as index} path {:keys [specifier names]}]
   (let [[roots module-name] (python-base index path specifier)
@@ -180,8 +196,8 @@
   [".ts" ".tsx" ".js" ".jsx" ".mjs" ".cjs" ".mts" ".cts" ".d.ts"])
 
 (defn- probe-script
-  "The file a script import reaches: the path itself, with an extension,
-  an index file, or a .ts file written as .js."
+  "The file a script import reaches, which is the path itself, the path
+  with an extension, an index file, or a .ts file written as .js."
   [paths candidate]
   (when candidate
     (or (first-present paths [candidate])
@@ -230,9 +246,7 @@
                   (probe-script paths (joined directory (subs specifier (inc (count package-name)))))))
               packages))))
 
-(defn- script-target
-  "The file a JavaScript or TypeScript import reaches."
-  [{:keys [paths] :as index} path specifier]
+(defn- script-target [{:keys [paths] :as index} path specifier]
   (cond
     (or (string/starts-with? specifier "./") (string/starts-with? specifier "../") (= "." specifier) (= ".." specifier))
     (probe-script paths (joined (directory-of path) specifier))
@@ -271,9 +285,7 @@
                                      [candidate (str candidate "/index.html") (str candidate ".html")]))
                                  candidates))))
 
-(defn- command-path-target
-  "The file a shell command names, from the script's folder or the root."
-  [{:keys [paths]} path specifier]
+(defn- command-path-target [{:keys [paths]} path specifier]
   (let [[_ after-variable] (re-find #"^(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\$\(.*?\))/(.*)$" specifier)]
     (cond
       after-variable (first-present paths [(joined (directory-of path) after-variable)])
@@ -292,13 +304,11 @@
                         paths)]
     (when (= 1 (count matches)) (first matches))))
 
-(defn- shared-folder-count
-  "How many leading folders two paths share."
-  [path other]
+(defn- shared-folder-count [path other]
   (count (take-while true? (map = (string/split (directory-of path) #"/") (string/split (directory-of other) #"/")))))
 
 (defn- nearest-ending
-  "The file of the cloud whose path ends with `specifier`: the only one,
+  "The file of the cloud whose path ends with `specifier`, the only one,
   else the one sharing the most folders with `path`, or nil on a tie."
   [paths-by-file-name path specifier]
   (let [tail (string/replace specifier #"^(?:\.{1,2}/)+" "")
@@ -310,21 +320,18 @@
         (when (> (first best) (first runner-up)) (second best))))))
 
 (defn- include-target
-  "The file an #include reaches: beside the including file for a quoted
-  name, then in each include folder, then the file whose path ends with
-  the name."
+  "The file an #include reaches, looked for beside the including file for
+  a quoted name, then in each include folder, then among the files whose
+  paths end with the name."
   [{:keys [paths include-folders paths-by-file-name]} path {:keys [specifier system?]}]
   (or (when-not system? (first-present paths [(joined (directory-of path) specifier)]))
       (first-present paths (map #(joined % specifier) include-folders))
       (nearest-ending paths-by-file-name path specifier)))
 
-(defn- targets
-  "[{:path :names :module?} or {:unit}] for one import of the file at
-  `path`."
-  [index path {:keys [resolver specifier] :as import}]
+(defn- targets [index path {:keys [resolver specifier] :as file-import}]
   (let [found-path (fn [target-path] (when target-path [{:path target-path}]))]
     (case resolver
-      :python (python-targets index path import)
+      :python (python-targets index path file-import)
       :python-module (found-path (some #(python-module-path (:paths index) % specifier) (:python-roots index)))
       :javascript (found-path (script-target index path specifier))
       :css (found-path (style-sheet-target index path specifier))
@@ -332,7 +339,7 @@
       :path (found-path (command-path-target index path specifier))
       :clojure-namespace (when (contains? (:units index) specifier) [{:unit specifier}])
       :java-class (found-path (java-class-target index specifier))
-      :c-include (found-path (include-target index path import))
+      :c-include (found-path (include-target index path file-import))
       :cpp-module (found-path (get (:module-paths index) specifier))
       nil)))
 
@@ -349,8 +356,8 @@
       family)))
 
 (defn- binds-for
-  "Bindings of a from-import that reach a target: a submodule binds as a
-  module, other names as themselves."
+  "Bindings of a from-import that reach a target, a submodule binding as a
+  module and other names as themselves."
   [{:keys [binds]} {:keys [names module?]}]
   (if names
     (into [] (keep (fn [bind]
@@ -359,25 +366,17 @@
           binds)
     (vec binds)))
 
-(defn- constructor-name?
-  "True for a C++ constructor or destructor, named after its own class,
-  whose uses are the class's."
-  [segments]
-  (let [own (peek segments)]
-    (and (> (count segments) 1)
-         (or (string/starts-with? own "~") (= own (peek (pop segments)))))))
-
 (defn- included-uses
   "Uses of `unit`'s definitions among the names an including file writes,
-  a qualified name matched by its last part."
-  [{:keys [definition-names]} unit identifier-counts]
-  (into {}
-        (keep (fn [definition-name]
-                (let [segments (string/split definition-name #"::")
-                      use-count (get identifier-counts (peek segments) 0)]
-                  (when (and (pos? use-count) (not (constructor-name? segments)))
-                    [definition-name use-count]))))
-        (distinct (get definition-names unit))))
+  looked up from whichever side is smaller."
+  [{:keys [definitions-by-last-part]} unit identifier-counts]
+  (let [by-part (get definitions-by-last-part unit)
+        uses-of (fn [definition-names use-count]
+                  (when (pos? use-count)
+                    (map (fn [definition-name] [definition-name use-count]) definition-names)))]
+    (if (< (count by-part) (count identifier-counts))
+      (into {} (mapcat (fn [[part definition-names]] (uses-of definition-names (get identifier-counts part 0)))) by-part)
+      (into {} (mapcat (fn [[identifier use-count]] (uses-of (get by-part identifier) use-count))) identifier-counts))))
 
 (defn- included-binds
   "One bind holding the uses of `unit`'s definitions, or none when the
@@ -387,39 +386,35 @@
     (if (seq uses) [{:local nil :name nil :uses uses}] [])))
 
 (defn- import-requirements
-  "Requirements for one import: one per target it reaches, or an external
-  one when it reaches none and its adapter keeps misses. A file that
-  counts the names it writes, as C does, binds what its targets define,
-  except the header beside it, whose uses stay within the pair."
-  [{:keys [unit-of language-of companion-of] :as index} path identifier-counts import]
+  "Requirements for one import, one per target it reaches, or an external
+  one. A file counting the names it writes, as C does, binds what its
+  targets define, except its own header."
+  [{:keys [unit-of language-of companion-of] :as index} path identifier-counts file-import]
   (let [source-language (get language-of path)
-        found (remove #(= path (:path %)) (targets index path import))]
+        found (remove #(= path (:path %)) (targets index path file-import))]
     (if (seq found)
       (mapv (fn [{target-path :path unit :unit :as target}]
               (let [target-language (if target-path (get language-of target-path) :clojure)
                     target-unit (or unit (get unit-of target-path))
-                    kind (if (and (= :import (:kind import)) (= :css target-language) (not= :css source-language))
+                    kind (if (and (= :import (:kind file-import)) (= :css target-language) (not= :css source-language))
                            :style
-                           (:kind import))]
+                           (:kind file-import))]
                 {:target target-unit
                  :kind kind
                  :platform (loading-platform kind source-language target-language)
-                 :specifier (:specifier import)
-                 :line (:line import)
+                 :specifier (:specifier file-import)
+                 :line (:line file-import)
                  :binds (cond
-                          (nil? identifier-counts) (binds-for import target)
+                          (nil? identifier-counts) (binds-for file-import target)
                           (= (get unit-of path) (get companion-of target-unit)) []
                           :else (included-binds index target-unit identifier-counts))}))
             found)
-      (if (:drop-unresolved? import)
+      (if (:drop-unresolved? file-import)
         []
-        [{:target (:specifier import) :kind (:kind import) :external? true :specifier (:specifier import)
-          :line (:line import)}]))))
+        [{:target (:specifier file-import) :kind (:kind file-import) :external? true :specifier (:specifier file-import)
+          :line (:line file-import)}]))))
 
-(defn- bind-references
-  "One bind's uses by definition name, with uses of a module alone under
-  nil."
-  [{imported-name :name :keys [uses]}]
+(defn- bind-references [{imported-name :name :keys [uses]}]
   (if (and imported-name (not (contains? #{"*" "default"} imported-name)))
     {imported-name (reduce + 0 (vals uses))}
     (or uses {})))
@@ -436,10 +431,8 @@
           requirements))
 
 (defn- companion-references
-  "{companion {definition-name use-count}} for the source files beside
-  the headers a file includes, whose definitions it uses through the
-  headers' declarations, as a caller of Board::read uses Board.cpp through
-  Board.hpp."
+  "{companion {definition-name use-count}} for sources beside included
+  headers, as a caller of Board::read uses Board.cpp through Board.hpp."
   [{:keys [companion-of unit-of] :as index} path identifier-counts requirements]
   (let [own-unit (get unit-of path)]
     (into {}

@@ -1,10 +1,10 @@
 (ns codecloud.render.results
-  "Results of evaluations, shown on the pages they came from: a small tag
-  after the last line of each evaluated form, kept in place every frame
-  while its page's code is large enough to read."
+  "Results of evaluations, shown on the pages they came from as a small
+  tag after the last line of each evaluated form, kept in place every
+  frame while its page's code is large enough to read."
   (:require [clojure.string :as string]
             [codecloud.render.dom :as dom]
-            [codecloud.render.editing :as editing]
+            [codecloud.render.editing-view :as editing-view]
             [codecloud.render.pages :as pages]))
 
 (defn create-layer
@@ -16,8 +16,8 @@
     {:root root :tags (atom [])}))
 
 (defn- tag-text
-  "What a result's tag says: an arrow and the first line of the value, cut
-  short, or Loaded for a whole file, an ellipsis while the REPL works, or
+  "What a result's tag says, an arrow and the first line of the value, cut
+  short, Loaded for a whole file, an ellipsis while the REPL works, or
   what went wrong."
   [{:keys [status text loading?]}]
   (let [longest-shown 80
@@ -28,18 +28,7 @@
       :value (if loading? "Loaded" (str "=> " shown (when more " …")))
       (str "× " shown))))
 
-(defn- tag-at!
-  "The `index`th tag element, made when there are fewer."
-  [{:keys [^js root tags]} index]
-  (or (get @tags index)
-      (let [^js tag (dom/element [:span.inline-result])]
-        (.appendChild root tag)
-        (swap! tags conj tag)
-        tag)))
-
-(defn- readable?
-  "True when a page shows its code as text large enough to read."
-  [page-object]
+(defn- readable? [page-object]
   (let [least-line-pixels 8
         text-showing 0.5]
     (and (:on-screen? page-object)
@@ -55,12 +44,12 @@
                  (for [{:keys [namespace-id path line column] :as result} (vals inline-results)
                        :let [page-object (pages/page-of page-layer namespace-id)]
                        :when (and page-object (readable? page-object))
-                       :let [point (editing/line-screen-point page-object path line column)]
+                       :let [point (editing-view/line-screen-point page-object path line column)]
                        :when point]
                    [result point page-object]))
         placed-count (count placed)]
     (doseq [[index [result [x y] page-object]] (map-indexed vector placed)]
-      (let [^js tag (tag-at! layer index)
+      (let [^js tag (dom/pooled-element! (:root layer) (:tags layer) index [:span.inline-result])
             style (.-style tag)
             line-pixels (:pixels-per-unit page-object)
             font-pixels (max 8 (js/Math.round (* 0.8 line-pixels)))

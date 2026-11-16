@@ -1,6 +1,6 @@
 (ns codecloud.model.snapshot
-  "A snapshot: one moment of a codebase, its measured pages with the edges
-  and cycles between them."
+  "A snapshot, which is one moment of a codebase, its measured pages with
+  the edges and cycles between them."
   (:require [codecloud.languages :as languages]
             [codecloud.languages.catalog :as catalog]
             [codecloud.model.cycles :as cycles]
@@ -10,29 +10,22 @@
             [codecloud.model.resolution :as resolution]
             [codecloud.model.restriction :as restriction]))
 
-(defn- shortened-doc
-  "A namespace docstring cut to the length the inspector shows."
-  [doc]
+(defn- shortened-doc [doc]
   (let [longest-doc 600]
     (when doc
       (if (> (count doc) longest-doc) (str (subs doc 0 longest-doc) "…") doc))))
 
-(defn- worst-hotspots
-  "A namespace's most tangled definitions, worst first."
-  [hotspots]
+(defn- worst-hotspots [hotspots]
   (let [most-listed 12]
     (vec (take most-listed (sort-by (juxt (comp - :score) :path :line) hotspots)))))
 
 (defn- platform-severity
-  "How loud a cycle on `platform` is: Clojure refuses to load one, and
-  other languages say in the catalog."
+  "How loud a cycle on `platform` is. Clojure refuses to load one, and the
+  catalog says for other languages."
   [platform]
   (if (contains? catalog/clojure-platforms platform) :error (catalog/cycle-severity platform)))
 
-(defn- with-severity
-  "A cycle with its :severity, :error when any of its platforms refuses
-  it and :warning otherwise."
-  [found-cycle]
+(defn- with-severity [found-cycle]
   (assoc found-cycle :severity (if (some #(= :error (platform-severity %)) (:platforms found-cycle)) :error :warning)))
 
 (defn build-snapshot

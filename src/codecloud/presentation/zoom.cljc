@@ -1,6 +1,7 @@
 (ns codecloud.presentation.zoom
-  "Zoom math: apparent size on screen, when zooming in hands over to the
-  editor, and how zooming out of the editor maps onto its font steps.")
+  "Zoom math for apparent size on screen, for when zooming in hands over
+  to the editor, and for how zooming out of the editor maps onto its font
+  steps.")
 
 (defn- half-angle-tangent [vertical-field-of-view-degrees]
   (Math/tan (/ (* vertical-field-of-view-degrees Math/PI) 360)))
@@ -31,7 +32,8 @@
 
 (defn editor-zoom-steps
   "Font zoom-out steps until editor text looks `threshold-percent` zoomed
-  out: 150, two thirds size, takes four. Thresholds run from 100 to 200."
+  out, so 150, two thirds size, takes four. Thresholds run from 100 to
+  200."
   [threshold-percent]
   (let [;; VS Code stops font zoom out at half size, five steps down.
         deepest-zoom-out 5
@@ -53,7 +55,7 @@
   (/ 100 (max 100 (min 200 threshold-percent))))
 
 (defn zoom-out-press
-  "What a zoom-out press does after `steps-taken`: {:action :shrink
+  "What a zoom-out press does after `steps-taken`, {:action :shrink
   :text-scale} or {:action :open-cloud :text-scale}."
   [steps-taken threshold-percent]
   (let [steps-to-cloud (max 1 (editor-zoom-steps threshold-percent))]
@@ -61,9 +63,7 @@
       {:action :shrink :text-scale (text-scale-after-steps (inc steps-taken))}
       {:action :open-cloud :text-scale (arrival-text-scale threshold-percent)})))
 
-(defn leak-dive
-  "Dive pressure after `elapsed-seconds` without pushing."
-  [pressure elapsed-seconds]
+(defn leak-dive [pressure elapsed-seconds]
   (let [leak-per-second 1.6]
     (max 0 (- pressure (* leak-per-second elapsed-seconds)))))
 

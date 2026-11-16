@@ -5,7 +5,7 @@
             [codecloud.presentation.palette :as palette]))
 
 (def ^:private night-rules
-  [{"settings" {"foreground" "#d6deeb" "background" "#011627"}}
+  [{"settings" {"foreground" "#d6deeb" "background" "#012627"}}
    {"scope" "comment" "settings" {"foreground" "#8aa0a0" "fontStyle" "italic"}}
    {"scope" ["string" "string.quoted"] "settings" {"foreground" "#ecc48d"}}
    {"scope" "keyword" "settings" {"foreground" "#c792ea"}}
@@ -19,7 +19,7 @@
 (def ^:private night-theme
   {:theme-id "Night Test"
    :dark? true
-   :colors {"editor.background" "#011627" "editorLineNumber.foreground" "#ffffff80"}
+   :colors {"editor.background" "#012627" "editorLineNumber.foreground" "#ffffff80"}
    :token-colors night-rules
    :bracket-pairs? true})
 

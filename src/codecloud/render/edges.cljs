@@ -7,6 +7,7 @@
   (:require ["three" :as three]
             [codecloud.presentation.palette :as palette]
             [codecloud.presentation.scene :as scene]
+            [codecloud.render.planes :as planes]
             [codecloud.render.shaders :as shaders]))
 
 (def ^:private segments-per-edge
@@ -46,14 +47,6 @@
    :edges (atom [])
    :topology (atom nil)})
 
-(defn- per-edge-attribute
-  "An attribute holding `item-size` numbers for each of `edge-count`
-  edges, shared by every vertex of that edge's ribbon."
-  [item-size edge-count]
-  (let [^js buffer (three/InstancedBufferAttribute. (js/Float32Array. (* item-size edge-count)) item-size)]
-    (.setUsage buffer three/DynamicDrawUsage)
-    buffer))
-
 (defn- build-geometry
   "One ribbon of `segments-per-edge` segments, drawn once for each edge,
   with each edge's ends and look given per edge."
@@ -79,7 +72,7 @@
     (.setAttribute geometry "bend" (three/BufferAttribute. bends 1))
     (.setIndex geometry (three/BufferAttribute. indices 1))
     (doseq [[attribute-name item-size] per-edge-attributes]
-      (.setAttribute geometry attribute-name (per-edge-attribute item-size edge-count)))
+      (.setAttribute geometry attribute-name (planes/dynamic-attribute three/InstancedBufferAttribute item-size edge-count)))
     (set! (.-instanceCount geometry) edge-count)
     geometry))
 
@@ -102,9 +95,7 @@
           (reset! mesh edge-mesh))
         (reset! mesh nil)))))
 
-(defn- edge-look
-  "Opacity, width in CSS pixels, and flow strength of one edge."
-  [{:keys [cyclic? cycle-warning? heavy? role kind emphasis]}]
+(defn- edge-look [{:keys [cyclic? cycle-warning? heavy? role kind emphasis]}]
   (let [quiet? (contains? scene/quiet-edge-kinds kind)]
     {:alpha (* emphasis (cond cyclic? 1.0 cycle-warning? 0.9 role 0.95 heavy? 0.85 quiet? 0.4 :else 0.6))
      :width (cond cyclic? 4.0 heavy? 3.6 cycle-warning? 3.2 role 3.0 quiet? 1.6 :else 2.2)

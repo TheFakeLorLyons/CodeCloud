@@ -23,7 +23,7 @@
        (contains? #{nil "clojure.core" "cljs.core"} (namespace (first form)))))
 
 (defn children
-  "The forms directly inside `form`: a map's keys and values, or a
+  "The forms directly inside `form`, a map's keys and values or a
   sequence's items."
   [form]
   (if (map? form)

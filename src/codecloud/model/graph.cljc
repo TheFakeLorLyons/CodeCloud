@@ -1,16 +1,16 @@
 (ns codecloud.model.graph
-  "The page graph: a node per unit, a namespace, script, or file, and an
-  edge per internal dependency. Edge :kind is :load, :alias, :implicit,
-  or the import's own kind; edges between language families are
-  :cross-language?."
+  "The page graph, with a node for each unit, be it a namespace, script,
+  or file, and an edge for each internal dependency. An edge's :kind is
+  :load, :alias, :implicit, or the import's own kind, and edges between
+  language families are :cross-language?."
   (:require [clojure.string :as string]
             [codecloud.collections :as collections]
             [codecloud.languages.catalog :as catalog]
             [codecloud.model.restriction :as restriction]))
 
 (defn node-id
-  "The node a file belongs to: its unit, which for Clojure is the declared
-  namespace or else the path."
+  "The node a file belongs to, its unit, which for Clojure is the declared
+  namespace and else the path."
   [facts]
   (or (:unit-id facts) (:namespace facts) (:path facts)))
 
@@ -96,10 +96,7 @@
                       (filter (fn [[target-id]] (and (contains? nodes-by-id target-id) (not= target-id source-id))))
                       (:resolved-references node)))))
 
-(defn- edge-kind
-  ":alias when every requirement is :as-alias, else the kind of the first
-  loading requirement."
-  [requirements]
+(defn- edge-kind [requirements]
   (if (every? :alias-only? requirements)
     :alias
     (or (some :kind (remove :alias-only? requirements)) :load)))
@@ -147,28 +144,32 @@
                   (not= (catalog/language-family (get-in nodes-by-id [from :language]))
                         (catalog/language-family (get-in nodes-by-id [to :language])))
                   (assoc :cross-language? true))))
-         (sort-by (juxt :from :to))
+         (sort (fn [edge other]
+                 (let [by-source (compare (:from edge) (:from other))]
+                   (if (zero? by-source) (compare (:to edge) (:to other)) by-source))))
          vec)))
 
 (defn- inbound-by-definition
-  "Map from [target-id definition-name] to its uses from other namespaces."
+  "{target-id {definition-name use-count}} for the uses each node's
+  definitions have from other nodes."
   [resolved-by-id]
-  (reduce (fn [tallies [target-id definition-name reference-count]]
-            (update tallies [target-id definition-name] (fnil + 0) reference-count))
+  (reduce (fn [tallies [_source-id targets]]
+            (reduce-kv (fn [tallies target-id counts]
+                         (update tallies target-id #(merge-with + % counts)))
+                       tallies
+                       targets))
           {}
-          (for [[_source-id targets] resolved-by-id
-                [target-id counts] targets
-                [definition-name reference-count] counts]
-            [target-id definition-name reference-count])))
+          resolved-by-id))
 
 (defn- finish-node
-  "`node` with what only the whole graph can tell: its neighbors, its
+  "`node` with what only the whole graph can tell, its neighbors, its
   outside requires, and the uses of it and of each of its definitions."
   [{:keys [id] :as node} {:keys [incoming outgoing inbound nodes-by-id]}]
   (let [from-elsewhere (remove #(= id (:from %)) incoming)
+        own-inbound (get inbound id)
         count-uses (fn [definition]
                      (assoc definition
-                            :inbound-count (get inbound [id (:name definition)] 0)
+                            :inbound-count (get own-inbound (:name definition) 0)
                             :local-count (get (:local-references node) (:name definition) 0)))]
     (-> node
         (assoc :requires (vec (sort (distinct (map :to outgoing))))

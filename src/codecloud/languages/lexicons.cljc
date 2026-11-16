@@ -6,9 +6,7 @@
   :keyword, and directives, decorators, and sigil variables :reader."
   (:require [clojure.string :as string]))
 
-(defn- word-set
-  "The words of a space-separated string, as a set."
-  [text]
+(defn- word-set [text]
   (set (string/split (string/trim text) #"\s+")))
 
 (defn- any-case
@@ -38,9 +36,9 @@
 (def ^:private multi-line-single-quoted {:open "'" :close "'" :escape "\\" :kind :string})
 
 (defn- reserved-word-kind
-  "Kinds for a language's words: :constant, :special, :definition after a
-  defining word, :keyword for builtin types, and :text for members after
-  a dot, unless the language reserves those, as Python does."
+  "The kind of a language's word, :constant, :special, :definition after a
+  defining word, :keyword for builtin types, or :text for members after a
+  dot."
   [{:keys [reserved constants defining types reserved-after-dot?]}]
   (fn [word previous _line _end]
     (let [[previous-kind previous-text] previous]
@@ -52,10 +50,7 @@
         (contains? types word) :keyword
         :else :text))))
 
-(defn- lexicon
-  "A lexicon for a language with reserved words, from its spans, the
-  patterns tried before the shared ones, and its word sets."
-  [{:keys [spans patterns words word-pattern]}]
+(defn- lexicon [{:keys [spans patterns words word-pattern]}]
   {:spans spans
    :patterns (into (vec patterns)
                    [spacing c-number brackets [:word (or word-pattern #"^[A-Za-z_][A-Za-z0-9_]*")]])
@@ -133,8 +128,9 @@
   (word-set "return typeof instanceof in of new delete void throw case do else yield await"))
 
 (defn- regex-may-open?
-  "True when a slash after `previous` starts a regex: at the start, after
-  an operator or opening bracket, or after a keyword such as return."
+  "True when a slash after `previous` starts a regex, as it does at the
+  start, after an operator or opening bracket, and after a keyword such
+  as return."
   [previous]
   (let [[previous-kind previous-text] previous]
     (or (nil? previous)
@@ -248,8 +244,8 @@
 ;; HTML
 
 (def ^:private html-tag
-  "The inside of a tag: its name first, then attribute names, each with
-  an optional value."
+  "The inside of a tag, its name first, then attribute names, each with an
+  optional value."
   {:spans [{:open "\"" :close "\"" :kind :string}
            {:open "'" :close "'" :kind :string}]
    :patterns [spacing
@@ -362,9 +358,7 @@
 
 ;; The C family and other brace languages
 
-(defn- after-include?
-  "True right after #include or #import, where <file> names a header."
-  [previous]
+(defn- after-include? [previous]
   (let [[previous-kind previous-text] previous]
     (and (= :reader previous-kind) (re-find #"^#\s*(?:include|import)" previous-text))))
 
@@ -387,9 +381,7 @@
    [:string #"^<[^<>\s]+>" after-include?]
    c-family-number])
 
-(defn- regex-quoted
-  "`text` with each character a regex treats specially escaped."
-  [text]
+(defn- regex-quoted [text]
   (string/replace text #"[\\^$.|?*+()\[\]{}]" (fn [character] (str "\\" character))))
 
 (def ^:private raw-string-body
@@ -635,8 +627,5 @@
    :r r
    :julia julia})
 
-(defn lexicon-for
-  "The lexicon of `language-id`, or the plain one for a language without
-  its own."
-  [language-id]
+(defn lexicon-for [language-id]
   (get by-language language-id plain))

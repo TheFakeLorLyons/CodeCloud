@@ -15,8 +15,8 @@
             [codecloud.model.source :as source]))
 
 (defn- clojure-imports
-  "Imports of a Clojure file that reach other languages: JavaScript
-  requires, Java classes, and the scripts its shell calls run."
+  "Imports of a Clojure file that reach other languages, such as
+  JavaScript requires, Java classes, and the scripts its shell calls run."
   [{:keys [requirements class-imports commands]}]
   (into []
         (concat
@@ -30,9 +30,7 @@
                found (shell/command-imports text line)]
            (assoc found :drop-unresolved? true)))))
 
-(defn- read-clojure
-  "Facts of a Clojure file, whose unit is its namespace or else its path."
-  [path text options]
+(defn- read-clojure [path text options]
   (let [facts (parse/analyze-file path text options)]
     (assoc facts
            :language :clojure
@@ -41,8 +39,8 @@
 
 (def adapters
   "Each language's reader, a function of the path, the text, and the
-  options: the cloud file's :flags and :complection, and :parse-tree for
-  the languages read through a syntax tree."
+  options, which hold the cloud file's :flags and :complection, and
+  :parse-tree for the languages read through a syntax tree."
   {:clojure {:read read-clojure}
    :python {:read python/read-python}
    :javascript {:read (partial javascript/read-script :javascript)}
@@ -54,9 +52,8 @@
    :cpp {:read (partial c-family/read-file :cpp)}})
 
 (defn with-companions
-  "File facts with what the C family adapter settles across files: each
-  file's role, and the file each header or module interface sits
-  beside."
+  "File facts with what the C family adapter settles across files, each
+  file's role and the file each header or module interface sits beside."
   [file-facts]
   (c-family/with-companions file-facts))
 
@@ -73,8 +70,8 @@
       found)))
 
 (defn skip-reason
-  "Why a readable file is left out, or nil: :binary, :too-large, or
-  :minified, by name or by lines averaging hundreds of characters."
+  "Why a readable file is left out, as :binary, :too-large, or :minified,
+  by name or by lines averaging hundreds of characters, or nil."
   [path text]
   (let [binary-sample 1024
         largest-text 1000000
@@ -99,10 +96,9 @@
              :parse-error {:message (str "Could not analyze this file: " (or (ex-message error) error))}))))
 
 (defn analyze-file
-  "Facts of the file at `path`, or nil when left out. Manifests read as
-  {:path :manifest}. `options` carry :flags, :complection, and
-  :parse-tree, a function of a grammar id, a text, and a query that the
-  host passes once tree-sitter has loaded."
+  "Facts of the file at `path`, or nil when left out. `options` carry
+  :flags, :complection, and :parse-tree, which the host passes once
+  tree-sitter has loaded."
   [path text options]
   (let [file-name (source/file-name path)
         language (catalog/language-for path (first-line text))]

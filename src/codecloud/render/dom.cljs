@@ -3,8 +3,6 @@
   classes, and attributes in place, which keeps focus."
   (:require [clojure.string :as string]))
 
-(def ^:private svg-namespace "http://www.w3.org/2000/svg")
-
 (def ^:private svg-tags
   #{"svg" "path" "circle" "line" "polyline" "polygon" "rect" "g" "ellipse"})
 
@@ -52,6 +50,7 @@
                                         [(first remaining) (rest remaining)]
                                         [{} remaining])
                 {:keys [tag-name id classes]} (parse-tag tag)
+                svg-namespace "http://www.w3.org/2000/svg"
                 ^js node (if (contains? svg-tags tag-name)
                            (js/document.createElementNS svg-namespace tag-name)
                            (js/document.createElement tag-name))]
@@ -66,9 +65,21 @@
                 (.appendChild node child-node)))
             node)))
 
-(defn replace-children!
-  "Replaces every child of `parent` with the nodes built from `hiccup`."
-  [^js parent hiccup]
+(defn pooled-element!
+  "The `index`th element of `pool`, an atom holding a vector, built from
+  `hiccup` and added to `parent` when the pool holds fewer."
+  [^js parent pool index hiccup]
+  (or (get @pool index)
+      (let [^js node (element hiccup)]
+        (.appendChild parent node)
+        (swap! pool conj node)
+        node)))
+
+(defn fit-height! [^js text-area tallest-pixels]
+  (set! (.. text-area -style -height) "auto")
+  (set! (.. text-area -style -height) (str (min tallest-pixels (.-scrollHeight text-area)) "px")))
+
+(defn replace-children! [^js parent hiccup]
   (set! (.-textContent parent) "")
   (when-let [built (element hiccup)]
     (.appendChild parent built))
@@ -81,9 +92,7 @@
     (when (not= text (.-textContent node))
       (set! (.-textContent node) text))))
 
-(defn toggle-class!
-  "Adds or removes a class."
-  [^js node class-name present?]
+(defn toggle-class! [^js node class-name present?]
   (.toggle (.-classList node) class-name (boolean present?)))
 
 (defn find-in

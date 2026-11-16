@@ -15,11 +15,28 @@
    :view/save-preference "view to host: remember :key with :value for this viewer"
    :view/save-view "view to host: add a view called :name with :selection to the cloud file"
    :view/log "view to host: write :message to the extension's output channel"
-   :view/repl-connect "view to host: connect the REPL to the nREPL server at :host and :port, or without a :port to the one a port file in the cloud's folder or a folder above names"
-   :view/repl-disconnect "view to host: close the REPL's connection"
-   :view/repl-eval "view to host: evaluate :code as request :id in namespace :ns, read from :path at :line and :column, counted from one, when it comes from a file"
-   :view/repl-load-file "view to host: load :path into the REPL as request :id, its text being :code"
-   :view/repl-interrupt "view to host: stop every evaluation of this cloud still running"
+   :view/repl-connect "view to host: connect REPL tab :tab to the nREPL server at :host and :port, or without a :port to the one a port file in the cloud's folder or a folder above names, or with :via :calva join Calva's own REPL"
+   :view/repl-disconnect "view to host: close REPL tab :tab's connection"
+   :view/repl-eval "view to host: evaluate :code in REPL tab :tab as request :id in namespace :ns, read from :path at :line and :column, counted from one; with a :path, a namespace the REPL lacks loads from that file's ns form first"
+   :view/repl-load-file "view to host: load :path into REPL tab :tab as request :id, its text being :code"
+   :view/repl-load-files "view to host: load the files at :paths into REPL tab :tab, in order, as request :id"
+   :view/repl-interrupt "view to host: stop every evaluation REPL tab :tab still runs"
+   :view/repl-close "view to host: tab :tab closed; close its connection, or let go of its terminal"
+   :view/shell-open "view to host: open shell tab :tab in a new VS Code terminal, or in the open terminal :terminal names"
+   :view/shell-run "view to host: run :command in shell tab :tab's terminal as request :id"
+   :view/shell-input "view to host: type :text and Enter into shell tab :tab's terminal, as input for the command running there"
+   :view/shell-interrupt "view to host: press Ctrl+C in shell tab :tab's terminal"
+   :view/list-terminals "view to host: send the terminals VS Code has open"
+   :view/focus "view to host: what the viewer is looking at: the :snapshot-id and :snapshot-label shown, the :lifted page or :lifted-folder, :editing with the edited page's :namespace-id and :path and the caret's :line, :column, :anchor-line, and :anchor-column counted from zero, the :in-view page ids largest first, the :view-filter, the :visible-count, and the :arrangement"
+   :view/connect-agent "view to host: offer the ways to connect an agent to the agent hub"
+   :view/agents-reporting "view to host: agents report at :level, one of codecloud.agents.tools/reporting-levels"
+   :view/dismiss-pin "view to host: take away the pin an agent set, :pin-id"
+   :view/assistant-ask "view to host: ask the assistant :text"
+   :view/assistant-stop "view to host: stop the assistant's question"
+   :view/assistant-new "view to host: begin a new conversation with the assistant"
+   :view/assistant-model "view to host: offer the assistant's models and the ways to add or remove a provider"
+   :view/format "view to host: format :text, the view's text of :path in :language at :revision and :epoch, with the editor's formatter: lines :start-line to :end-line, counted from zero, or the whole file without them"
+   :view/new-file "view to host: ask for the name of a new file in :directory, relative to the cloud's folder, and make it"
    :host/init "host to view: settings, theme, editor font, and remembered preferences"
    :host/views "host to view: the cloud file's named :views and its :color-layers"
    :host/snapshot "host to view: a snapshot to draw"
@@ -34,12 +51,20 @@
    :host/document "host to view: :path holds :text with :content-key, after an edit that could not apply or a change from elsewhere; later edits build on :epoch"
    :host/dirty "host to view: whether :path has unsaved changes"
    :host/notice "host to view: a :message worth showing, such as configuration problems"
-   :host/repl-status "host to view: the REPL connection's :status, one of :connecting, :connected, :disconnected, and :failed, with its :port and a :message saying what happened"
-   :host/repl-output "host to view: part of the answer to request :id, holding :out or :err text, a printed :value with its :ns, an :ex class, or :status words, done among them in the last part"})
+   :host/repl-status "host to view: REPL tab :tab's connection :status, one of :connecting, :connected, :disconnected, and :failed, with its :port, a :message saying what happened, and :via :calva for a tab joined to Calva's REPL"
+   :host/repl-output "host to view: part of the answer to request :id in REPL tab :tab, holding :out or :err text, a printed :value with its :ns, an :ex class, a :note on what the host did for it, or :status words, done among them in the last part; or the :input Calva evaluated from elsewhere, opening a request of its own"
+   :host/shell-status "host to view: shell tab :tab's :status, one of :starting, :ready, :running, :closed, and :failed, with the shell's :label, its :cwd, and a :message"
+   :host/shell-output "host to view: output :text of request :id in shell tab :tab, a :note about it, the :command when it was typed in VS Code's own terminal, and at its end :done? with the :exit-code and the new :cwd"
+   :host/terminals "host to view: the :terminals VS Code has open with a shell behind them, each {:id :name}, and whether Calva is installed, as :calva?"
+   :host/evaluate "host to view: evaluate code from a file open in a VS Code editor through the REPL tab that evaluates, as request :id: the :scope, the :code, the file's :path and :namespace-id, the :namespace-name, and the :line and :column where the code starts, counted from one"
+   :host/agents "host to view: whether the agent hub is :serving?, its :url, the :agents present, each {:name :since}, how much agents are :reporting, and a :problem when it could not start"
+   :host/presence "host to view: where agents work: the :agents, each {:id :name :initials :hue :place :doing :intent :reads :changes :present? :parent :since :last-at}, with its :place {:path :line}, its :reads {:path :start :end :at}, and its :changes {:path :start :end :added :removed :at :credited?}, and the :pins, each {:id :agent-id :path :line :note :at}; paths are relative to the cloud's folder, lines count from one, and a read or change of a whole file has no lines"
+   :host/formatted "host to view: :text, the formatted text of :path at :revision and :epoch"
+   :host/created "host to view: the new file at :path is made, the caret to go to :line and :column, counted from zero"
+   :host/diagnostics "host to view: the problems VS Code knows of in the cloud's files, :files mapping each path to its problems, each {:line :column :end-line :end-column :severity :message :source :code}, lines and columns counted from zero and :severity one of :error, :warning, :information, and :hint"
+   :host/assistant "host to view: the conversation with the assistant: its :entries, each {:id :version :kind} with :kind :question, :answer, :tool, or :notice, a question, an answer, and a notice holding :text, an answer still arriving marked :streaming?, and a tool holding its :name, :title, :target, :status (:running, :done, or :failed), and :result; whether a question is :running?, the :model chosen with its provider, whether one is chosen as :ready?, and whether the agent hub gives the assistant its tools as :hub?"})
 
-(defn encode
-  "Message map to string."
-  [message]
+(defn encode [message]
   (let [protocol-version 1]
     (pr-str (assoc message :protocol/version protocol-version))))
 
@@ -54,9 +79,6 @@
     (catch #?(:clj Exception :cljs :default) _error
       nil)))
 
-(defn message
-  "A message of `message-type`, which must appear in `message-types`, with
-  the given fields."
-  [message-type fields]
+(defn message [message-type fields]
   {:pre [(contains? message-types message-type)]}
   (assoc fields :type message-type))

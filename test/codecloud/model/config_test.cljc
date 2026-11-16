@@ -6,10 +6,10 @@
 
 (deftest validates-cloud-file-values
   (let [{validated :config problems :problems}
-        (config/validate {:ignore ["dev/"] :weights {:lines 0.5 :mood 3 :functions -1}
+        (config/validate {:ignore ["dev/"] :weights {:lines 0.5 :dependents 2 :mood 3 :functions -1}
                           :extensions [".CLJ" "cljs"]})]
     (is (= ["dev/"] (:ignore validated)))
-    (is (= {:lines 0.5} (:weights validated)))
+    (is (= {:lines 0.5 :dependents 2} (:weights validated)))
     (is (= ["clj" "cljs"] (:extensions validated)))
     (is (= 1 (count problems))))
   (testing "values of the wrong shape are dropped with a problem each"
@@ -92,6 +92,12 @@
     (is (= 2 (count problems)))
     (is (= [:cloud/long :cloud/tests] (map :key (config/color-layer-specs validated)))))
   (is (seq (:problems (config/validate {:color-layers [:long]}))))
+  (testing "a layer may shade pages by how often a flag matches"
+    (is (= {:cloud/waits {:key :cloud/waits :label "Waits" :metric [:flag "blocking"] :colors ["gray" "purple"]}}
+           (:color-layers (:config (config/validate {:color-layers {:waits {:label "Waits" :flag :blocking
+                                                                            :colors ["gray" "purple"]}}})))))
+    (is (seq (:problems (config/validate {:color-layers {:waits {:flag :blocking :colors ["gray"]}}})))
+        "a flag layer needs two colors, as a measurement layer does"))
   (testing "layers from deps.edn and the cloud file merge by name"
     (is (= #{:cloud/a :cloud/b}
            (set (keys (:color-layers (config/combine {:color-layers {:cloud/a {:key :cloud/a}}}

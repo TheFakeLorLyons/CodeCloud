@@ -13,9 +13,7 @@
   (reset! (:zoom-steps host) steps)
   (api/set-context! "codecloud.zoomedOut" (pos? steps)))
 
-(defn- restore-font-zoom!
-  "Undoes the font zoom-outs CodeCloud made, one step at a time."
-  [host]
+(defn- restore-font-zoom! [host]
   (let [steps @(:zoom-steps host)]
     (set-steps! host 0)
     (reduce (fn [chain _] (task/then chain (fn [_] (api/execute-command "editor.action.fontZoomIn"))))
@@ -65,9 +63,9 @@
   (str (js/Math.round (* 100 share)) "%"))
 
 (defn zoom-out!
-  "One press of the zoom-out key: shrinks the editor's text a step, or
-  past the threshold opens the cloud. Steps count at the press, so a held
-  key never outruns the count."
+  "One press of the zoom-out key, which shrinks the editor's text a step,
+  or past the threshold opens the cloud. Steps count at the press, so a
+  held key never outruns the count."
   [host]
   (let [steps @(:zoom-steps host)
         threshold (settings/zoom-out-threshold)

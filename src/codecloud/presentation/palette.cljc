@@ -29,6 +29,10 @@
          :length-high [0.52 0.17 290]
          :accent [0.50 0.15 268]
          :selection [0.84 0.08 250]
+         :bracket-match [0.80 0.09 195]
+         :problem-error [0.56 0.21 27]
+         :problem-warning [0.68 0.15 68]
+         :problem-information [0.55 0.13 250]
          :sky-zenith [0.63 0.12 245]
          :sky-horizon [0.93 0.035 215]
          :sun [0.97 0.06 90]}
@@ -53,6 +57,10 @@
            :length-high [0.78 0.14 290]
            :accent [0.80 0.12 268]
            :selection [0.48 0.1 265]
+           :bracket-match [0.47 0.08 195]
+           :problem-error [0.70 0.19 25]
+           :problem-warning [0.83 0.15 78]
+           :problem-information [0.74 0.12 250]
            :sky-zenith [0.16 0.05 272]
            :sky-horizon [0.30 0.065 262]
            :moon [0.95 0.02 85]
@@ -63,24 +71,23 @@
           :cloud-shade [0.6 0.07 335]}})
 
 (def language-accents
-  "Each analyzed language family's Language layer color per sky.
-  Alternating lightness keeps every pair at least 16 apart in Oklab (Delta
-  E times 100), and at least 6 under color blindness, where language tags
-  tell the closest apart. Reds stay free for cycles and parse errors."
+  "Each analyzed language family's Language layer color per sky, every
+  pair at least 16 apart in Oklab, Delta E times 100, and 6 under color
+  blindness. Reds stay free for cycles and errors."
   {:day {:clojure [0.50 0.15 145] :python [0.50 0.16 258] :javascript [0.80 0.15 98] :css [0.65 0.15 305]
          :html [0.68 0.16 55] :shell [0.72 0.12 190] :c [0.42 0.20 330]}
    :night {:clojure [0.60 0.15 150] :python [0.66 0.15 258] :javascript [0.92 0.14 100] :css [0.82 0.13 305]
            :html [0.80 0.14 52] :shell [0.84 0.12 190] :c [0.58 0.20 330]}})
 
 (def unclassified
-  "{:day :night} of pages in a language CodeCloud reads only as text:
-  black by day, and a dark gray by night, where black would vanish."
+  "{:day :night} of pages in a language CodeCloud reads only as text,
+  black by day and a dark gray by night, where black would vanish."
   {:day [0.25 0.01 260] :night [0.40 0.01 260]})
 
 (def chooser-colors
-  "Colors the color chooser offers: a deep and a light tone of twelve hues,
-  at the lightness folder colors take on each sky, and all clear of the
-  reds that mark cycles and parse errors."
+  "Colors the color chooser offers, a deep and a light tone of twelve hues
+  at the lightness folder colors take on each sky, all clear of the reds
+  that mark cycles and parse errors."
   (let [hues [55 80 105 130 155 180 205 230 255 280 305 330]
         tones [{:day [0.54 0.15] :night [0.72 0.14]}
                {:day [0.70 0.13] :night [0.86 0.105]}]]
@@ -93,7 +100,7 @@
   {:day [0.55 0.02 80] :night [0.72 0.02 80]})
 
 (defn language-accent
-  "Oklch color of a Language layer entry on one theme: a language family,
+  "Oklch color on one theme of a Language layer entry, a language family
   or :unclassified."
   [theme-name family]
   (if (= :unclassified family)
@@ -134,14 +141,10 @@
   [night-amount]
   (if (< night-amount 0.5) :day :night))
 
-(defn color-of
-  "Oklch color `color-key` of theme `theme-name`."
-  [theme-name color-key]
+(defn color-of [theme-name color-key]
   (get-in themes [theme-name color-key]))
 
-(defn- hex-table
-  "The colors of each theme of `colors-by-theme` as hex, worked out once."
-  [colors-by-theme]
+(defn- hex-table [colors-by-theme]
   (into {} (map (fn [[theme-name colors]] [theme-name (update-vals colors color/oklch->hex)])) colors-by-theme))
 
 (def ^:private theme-hexes (hex-table themes))
@@ -150,8 +153,8 @@
   (get-in theme-hexes [theme-name color-key]))
 
 (def ^:private blend-tones
-  "How a blend becomes edge and glass per sky: the edge keeps its hue and
-  chroma at a readable lightness, and the glass takes the hue at low
+  "How a blend becomes edge and glass per sky, the edge keeping its hue
+  and chroma at a readable lightness and the glass taking the hue at low
   chroma. Gray is the unblended look."
   {:day {:edge-lightness [0.42 0.80]
          :glass-lightness 0.955
@@ -204,20 +207,15 @@
                [theme-name (update-vals (page-oklch theme-name color-spec) color/oklch->rgb)]))
         [:day :night]))
 
-(defn- pulled-hue
-  "Hue of `oklch` once a chroma of `pull` toward `hue` adds to it in Oklab."
-  [oklch hue pull]
+(defn- pulled-hue [oklch hue pull]
   (let [[_ green-red blue-yellow] (color/oklch->oklab oklch)
         [_ pull-green-red pull-blue-yellow] (color/oklch->oklab [0 pull hue])]
     (nth (color/oklab->oklch [0 (+ green-red pull-green-red) (+ blue-yellow pull-blue-yellow)]) 2)))
 
 (def ^:private cloud-tints
-  "Lightness and chroma of a tinted cloud's lit and shaded tones per sky
-  and tint. By day a cloud takes the folder's hue outright. By night it
-  keeps its moonlit blue, with the hue pulled toward the folder's by :lean
-  of the blue's chroma, since turning it further passes through pink near
-  the cycle reds, and graying it toward a warm hue looks khaki beside the
-  sky."
+  "Lightness and chroma of a tinted cloud's tones per sky and tint. By
+  night a cloud keeps its moonlit blue, leaning toward the folder's hue
+  only by :lean, since turning further passes through pink."
   {:day {:slight {:light [0.978 0.014] :shade [0.86 0.03]}
          :strong {:light [0.968 0.03] :shade [0.835 0.06]}}
    :night {:slight {:light [0.536 0.03] :shade [0.316 0.038] :lean 0.3}
@@ -249,9 +247,7 @@
                [theme-name (update-vals (folder-cloud-oklch theme-name hue tint) color/oklch->rgb)]))
         [:day :night]))
 
-(defn blended-rgb
-  "A theme color between day and night."
-  [color-key night-amount]
+(defn blended-rgb [color-key night-amount]
   (color/oklch->rgb (color/mix-oklch (color-of :day color-key) (color-of :night color-key) night-amount)))
 
 (defn mix-rgb

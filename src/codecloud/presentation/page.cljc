@@ -19,11 +19,17 @@
   "Columns between tab stops in code, the editor's usual width."
   4)
 
+(defn shown-line-count
+  "Lines `file` takes on its page, its own or one for an empty file, so
+  the caret has a line to stand on."
+  [file]
+  (max 1 (or (:line-count file) 0)))
+
 (defn panel-lines
-  "Lines a page shows: every file's lines, plus a heading line before each
+  "Lines a page shows, every file's lines, with a heading line before each
   file when the namespace spans several files."
   [files]
-  (+ (reduce + 0 (map #(:line-count % 0) files))
+  (+ (reduce + 0 (map shown-line-count files))
      (if (> (count files) 1) (count files) 0)))
 
 (defn- column-count
@@ -34,10 +40,8 @@
     (max 1 (Math/round (Math/sqrt (/ line-count (* tallest-ratio column-width)))))))
 
 (defn geometry
-  "Layout of a page for `files`, each with :line-count and :longest-line.
-  `character-width` is the font's advance over its line height. A page
-  being edited keeps `fixed-columns`, so its lines never jump between
-  columns as it grows."
+  "Layout of a page for `files`. A page being edited keeps
+  `fixed-columns`, so its lines never jump between columns as it grows."
   ([files character-width] (geometry files character-width nil))
   ([files character-width fixed-columns]
    (let [;; Short files still read as pages, and longer lines end in an ellipsis.
@@ -117,9 +121,9 @@
   (let [headings? (> (count files) 1)]
     (loop [remaining files
            first-panel-line 0]
-      (when-let [{:keys [path line-count]} (first remaining)]
+      (when-let [{:keys [path] :as file} (first remaining)]
         (let [heading-lines (if headings? 1 0)
-              next-first (+ first-panel-line heading-lines (or line-count 0))]
+              next-first (+ first-panel-line heading-lines (shown-line-count file))]
           (cond
             (>= panel-line next-first) (recur (rest remaining) next-first)
             (< panel-line (+ first-panel-line heading-lines)) {:path path :line 1 :heading? true}
@@ -134,10 +138,27 @@
            first-panel-line 0]
       (when-let [file (first remaining)]
         (let [heading-lines (if headings? 1 0)
-              line-count (or (:line-count file) 0)]
+              line-count (shown-line-count file)]
           (if (= path (:path file))
-            (+ first-panel-line heading-lines (dec (max 1 (min line (max 1 line-count)))))
+            (+ first-panel-line heading-lines (dec (max 1 (min line line-count))))
             (recur (rest remaining) (+ first-panel-line heading-lines line-count))))))))
+
+(defn line-spans
+  "Page-local rectangles {:x :y :width :height}, centered, covering
+  one-based lines `start` to `end` of `path`, one per column they fall
+  in."
+  [{:keys [rows column-width] :as page-geometry} files path start end]
+  (let [first-panel-line (origin-panel-line files path start)
+        last-panel-line (origin-panel-line files path end)]
+    (when (and first-panel-line last-panel-line)
+      (for [column-lines (partition-by #(quot % rows) (range first-panel-line (inc (max first-panel-line last-panel-line))))
+            :let [column (quot (first column-lines) rows)
+                  top (- (code-top page-geometry) (mod (first column-lines) rows))
+                  bottom (- (code-top page-geometry) (mod (last column-lines) rows) 1)]]
+        {:x (+ (column-left page-geometry column) (* 0.5 column-width))
+         :y (* 0.5 (+ top bottom))
+         :width column-width
+         :height (- top bottom)}))))
 
 (defn line-length-metrics
   "{:line-count :longest-line} of a file's lines, as the analysis measures
@@ -147,8 +168,8 @@
    :longest-line (reduce max 0 (map count lines))})
 
 (defn named-by-path?
-  "True for a page named by its path: a script without a namespace, or a
-  file of another language."
+  "True for a page named by its path, as a script without a namespace and
+  a file of another language are."
   [{:keys [kind]}]
   (contains? #{:script :module} kind))
 

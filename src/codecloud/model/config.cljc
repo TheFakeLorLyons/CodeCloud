@@ -7,6 +7,7 @@
             [codecloud.languages.manifests :as manifests]
             [codecloud.model.complection :as complection]
             [codecloud.model.importance :as importance]
+            [codecloud.model.metrics :as metrics]
             [codecloud.model.source :as source]
             [edamame.core :as edamame]))
 
@@ -52,11 +53,13 @@
     ";; before it counts as complected. The defaults are"
     ";;   :complection {:lines 25 :branches 6 :nesting 7 :asynchronous 1 :state 2}"
     ";; :weights set how much each measurement counts toward a namespace's"
-    ";; importance."
+    ";; importance, which by default weighs :functions, :references, and"
+    ";; :lines alike."
     ";; :color-layers adds layers to the colors in the arrange panel, each"
-    ";; shading pages by a measurement from one color to another or coloring"
-    ";; the pages its patterns match, as in"
+    ";; shading pages by a measurement or by how often a flag matches, from"
+    ";; one color to another, or coloring the pages its patterns match, as in"
     ";;   :color-layers {:long {:metric :lines :colors [\"green\" \"red\"]}"
+    ";;                  :waits {:flag :blocking :colors [\"gray\" \"purple\"]}"
     ";;                  :tests {:patterns [\"test/\"] :color \"pink\"}}"
     ";; CodeCloud reads every language it knows. :languages narrows the cloud"
     ";; to some of them, as with :languages [:clojure :python :shell], and"
@@ -90,8 +93,8 @@
       string/lower-case))
 
 (defn- normalized-folder
-  "A folder as resolution compares it: forward slashes, from the cloud's
-  root, with no leading ./ and no trailing slash."
+  "A folder as resolution compares it, with forward slashes, from the
+  cloud's root, and without a leading ./ or a trailing slash."
   [folder]
   (-> (string/trim folder)
       (string/replace "\\" "/")
@@ -113,10 +116,7 @@
             (when (some #(= spelled %) [(name id) (string/lower-case label) tag]) id))
           catalog/languages)))
 
-(defn- entry-name
-  "The name a cloud file map key gives, or nil for a key that is not a
-  keyword, symbol, or string."
-  [entry-key]
+(defn- entry-name [entry-key]
   (cond
     (keyword? entry-key) (name entry-key)
     (symbol? entry-key) (name entry-key)
@@ -150,10 +150,7 @@
              {:views {} :problems []}
              views))
 
-(defn- flag-patterns
-  "A flag's patterns as {:text :symbols}, or nil when the value is not a
-  vector of strings and symbols."
-  [flag-value]
+(defn- flag-patterns [flag-value]
   (when (and (sequential? flag-value) (every? #(or (string? %) (symbol? %)) flag-value))
     {:text (vec (distinct (remove string/blank? (filter string? flag-value))))
      :symbols (vec (distinct (map str (filter symbol? flag-value))))}))
@@ -175,7 +172,7 @@
              flags))
 
 (defn- valid-weight? [[weight-key weight-value]]
-  (and (contains? (set importance/weighted-metrics) weight-key)
+  (and (contains? metrics/measurements weight-key)
        (number? weight-value)
        (not (neg? weight-value))))
 
@@ -186,8 +183,7 @@
 
 (def color-layer-measurements
   "Measurements a cloud file's heat layer may shade pages by."
-  #{:lines :functions :definitions :references :dependents :dependencies :external-dependencies
-    :complection :flags :importance})
+  (conj (set (keys metrics/measurements)) :importance))
 
 (def color-names
   "Colors a cloud file's layers may name, besides #rrggbb."
@@ -199,18 +195,22 @@
            (some? (re-matches #"#[0-9a-fA-F]{6}" value)))))
 
 (defn- color-layer
-  "A validated cloud file layer, {:metric :colors [low high]} or
-  {:patterns :color}, or nil. Its key sits in the cloud namespace, apart
-  from the built-in layers."
-  [layer-key {:keys [label metric colors patterns color] :as entry}]
+  "A validated cloud file layer, shading by a measurement or a flag's
+  matches, {:metric :colors [low high]}, or coloring what patterns match,
+  {:patterns :color}, or nil. A flag's metric is [:flag name], and the
+  key sits in the cloud namespace, apart from the built-in layers."
+  [layer-key {:keys [label metric flag colors patterns color] :as entry}]
   (let [layer-name (entry-name layer-key)
         layer-label (or label layer-name)
-        cloud-key (keyword "cloud" layer-name)]
+        cloud-key (keyword "cloud" layer-name)
+        ramp? (and (sequential? colors) (= 2 (count colors)) (every? color-text? colors))]
     (when (and (map? entry) (string? layer-label))
       (cond
-        (and (contains? color-layer-measurements metric)
-             (sequential? colors) (= 2 (count colors)) (every? color-text? colors))
+        (and (contains? color-layer-measurements metric) ramp?)
         {:key cloud-key :label layer-label :metric metric :colors (vec colors)}
+
+        (and (entry-name flag) ramp?)
+        {:key cloud-key :label layer-label :metric [:flag (entry-name flag)] :colors (vec colors)}
 
         (and (pattern-list? patterns) (seq patterns) (color-text? color))
         {:key cloud-key :label layer-label :patterns (vec patterns) :colors [color]}
@@ -228,14 +228,16 @@
                   :problems (conj problems
                                   (str "The color layer " (pr-str layer-key) " needs :metric, one of "
                                        (collections/spoken-list (map str (sort color-layer-measurements)))
-                                       ", with :colors [low high], or :patterns with a :color. The named colors are "
+                                       ", or :flag naming one of :flags, with :colors [low high], or :patterns with a"
+                                       " :color. The named colors are "
                                        (collections/spoken-list (sort color-names)) ", and #rrggbb names any other."))}))
              {:layers {} :problems []}
              layers))
 
 (def ^:private entry-rules
-  "How each configuration entry is checked, in reporting order: :valid?,
-  the :problem when not, and :clean, giving {:value :problems}."
+  "How each configuration entry is checked, in reporting order, each rule
+  giving :valid?, the :problem when not, and :clean, which gives {:value
+  :problems}."
   [{:key :include
     :valid? pattern-list?
     :problem ":include must be a vector of pattern strings."
@@ -269,7 +271,7 @@
              {:value (into {} (filter valid-weight?) weights)
               :problems (when-not (every? valid-weight? weights)
                           [(str ":weights accepts non-negative numbers for "
-                                (collections/spoken-list (map str importance/weighted-metrics)) ".")])})}
+                                (collections/spoken-list (map str (sort (keys metrics/measurements)))) ".")])})}
    {:key :extensions
     :valid? pattern-list?
     :problem ":extensions must be a vector of strings such as [\"clj\" \"cljs\"]."
@@ -280,7 +282,7 @@
     :clean (fn [folders] {:value (mapv normalized-folder folders)})}
    {:key :color-layers
     :valid? map?
-    :problem ":color-layers must be a map from a layer's name to its :metric and :colors, or :patterns and :color."
+    :problem ":color-layers must be a map from a layer's name to its :metric or :flag with :colors, or :patterns and :color."
     :clean (fn [layers] (let [{checked :layers :keys [problems]} (validate-color-layers layers)]
                           {:value checked :problems problems}))}
    {:key :languages
@@ -357,9 +359,9 @@
   (vec (sort-by (comp name :key) (vals (:color-layers config)))))
 
 (defn source-path-predicate
-  "Predicate for the paths read by name: :extensions when given, else
-  known languages, narrowed by :languages. Extensionless files and
-  manifests stay candidates."
+  "Predicate for the paths read by name, which match :extensions when
+  given and else the known languages, narrowed by :languages.
+  Extensionless files and manifests stay candidates."
   [config]
   (let [listed-extensions (some-> (:extensions config) set)
         wanted-languages (some-> (:languages config) set)
@@ -391,8 +393,8 @@
       (contains? (set (:languages config)) language-id)))
 
 (defn read-extensions
-  "The extensions a configuration reads, for history and file watching:
-  those it lists, or those of every language it reads."
+  "The extensions a configuration reads, for history and file watching,
+  which are those it lists or else those of every language it reads."
   [config]
   (or (:extensions config)
       (let [wanted (some-> (:languages config) set)]
@@ -415,8 +417,8 @@
        "}"))
 
 (defn view-insertion
-  "Where a new view goes: one-based {:line :column :text} before the
-  closing brace of :views or the file's map, or {:error message}."
+  "Where a new view goes, as one-based {:line :column :text} before the
+  closing brace of :views or the file's map, or as {:error message}."
   [text view-label selection]
   (let [{:keys [value error]} (read-edn text)
         entry (str (view-key-text view-label) " " (selection-text selection))]

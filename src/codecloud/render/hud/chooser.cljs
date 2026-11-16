@@ -1,15 +1,14 @@
 (ns codecloud.render.hud.chooser
-  "The color chooser: swatches that read on both skies, a custom color, and
-  the way back to the default. It opens under the dot that was clicked."
+  "The color chooser, offering swatches that read on both skies, a custom
+  color, and the way back to the default. It opens under the dot that was
+  clicked."
   (:require [codecloud.presentation.color :as color]
             [codecloud.presentation.layers :as layers]
             [codecloud.presentation.palette :as palette]
             [codecloud.render.dom :as dom]
             [codecloud.render.icons :as icons]))
 
-(defn- hexes
-  "A {:day :night} color as its two hex strings, for comparing colors."
-  [colors]
+(defn- hexes [colors]
   (when colors
     [(color/oklch->hex (:day colors)) (color/oklch->hex (:night colors))]))
 

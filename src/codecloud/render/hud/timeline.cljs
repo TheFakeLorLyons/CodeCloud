@@ -1,16 +1,15 @@
 (ns codecloud.render.hud.timeline
-  "The history along the bottom: a tick per commit, stepping, playback,
-  and a way back to the working tree."
-  (:require [codecloud.render.dom :as dom]
+  "The history along the bottom, with a tick for each commit, stepping,
+  playback, and a way back to the working tree."
+  (:require [codecloud.counting :as counting]
+            [codecloud.render.dom :as dom]
             [codecloud.render.hud.words :as words]
             [codecloud.render.icons :as icons]))
 
 (defn- commit-tooltip-text [{:keys [subject author time]}]
-  (str subject "\n" author ", " (words/relative-time time)))
+  (str subject "\n" author ", " (counting/ago (js/Date.now) time)))
 
-(defn- commit-ticks
-  "A tick for each commit, oldest at the left."
-  [dispatch commits]
+(defn- commit-ticks [dispatch commits]
   (let [commit-count (count commits)]
     (map-indexed (fn [index {:keys [sha] :as commit}]
                    [:button.timeline-tick {:data-sha sha

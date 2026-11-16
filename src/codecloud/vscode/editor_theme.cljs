@@ -19,7 +19,7 @@
    :high-contrast-light "preferredHighContrastLightColorTheme"})
 
 (defn- active-theme
-  "The contribution of the theme the editor shows: the chosen theme when
+  "The contribution of the theme the editor shows, the chosen theme when
   it is of the kind shown, else the preferred theme of that kind, or nil
   when no installed extension contributes either."
   []

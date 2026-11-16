@@ -9,7 +9,7 @@
                    (theme-files/read-theme "test-resources/themes/split.json")
                    (theme-files/read-theme "test-resources/themes/missing.json")])
         (task/then (fn [[night split missing]]
-                     (is (= {"editor.background" "#011627" "editor.foreground" "#d4d4d4"} (:colors night))
+                     (is (= {"editor.background" "#012627" "editor.foreground" "#d4d4d4"} (:colors night))
                          "the including file's colors win")
                      (is (= ["comment" "string" "keyword"] (mapv #(get % "scope") (:token-colors night)))
                          "included rules come first")

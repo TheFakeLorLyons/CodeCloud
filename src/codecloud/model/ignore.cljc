@@ -108,9 +108,7 @@
                                    (pattern-body-regex body)
                                    "$"))})))))
 
-(defn rule-set
-  "Rule set for a sequence of pattern lines that apply under `base`."
-  [base pattern-lines]
+(defn rule-set [base pattern-lines]
   {:base base
    :rules (into [] (keep compile-pattern) pattern-lines)})
 
@@ -153,12 +151,8 @@
   (boolean (or (some #(verdict rule-sets % true) (ancestor-directories path))
                (verdict rule-sets path directory?))))
 
-(defn ignored?
-  "True when the file at `path` is ignored."
-  [rule-sets path]
+(defn ignored? [rule-sets path]
   (ignored-as? rule-sets path false))
 
-(defn directory-ignored?
-  "True when the folder at `path` is ignored."
-  [rule-sets path]
+(defn directory-ignored? [rule-sets path]
   (ignored-as? rule-sets path true))

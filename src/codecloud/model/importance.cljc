@@ -1,16 +1,13 @@
 (ns codecloud.model.importance
-  "An importance score from 0 to 1 for each page, which gives the page
-  strongest in functions, uses, and length a 1.")
+  "An importance score from 0 to 1 for each page, which by default gives
+  the page strongest in functions, uses, and length a 1.")
 
 (def default-weights
-  "Relative influence of each measurement on importance."
+  "Relative influence of each measurement on importance. A cloud file's
+  :weights may add any other measurement."
   {:functions 1.0
    :references 1.0
    :lines 1.0})
-
-(def weighted-metrics
-  "Metric keys that importance combines, in display order."
-  [:functions :references :lines])
 
 (defn- log-scaled
   "A count on a log scale, which keeps one enormous file or heavily used
@@ -19,10 +16,11 @@
   (Math/log (inc value)))
 
 (defn scores
-  "Id to importance: the weighted mean of log-scaled metrics over their
+  "Id to importance, the weighted mean of log-scaled metrics over their
   maxima, rescaled so the top scores 1. Negative weights count as zero."
   [metrics-by-id weights]
-  (let [weight-of (fn [metric-key] (max 0 (get weights metric-key 0)))
+  (let [weighted-metrics (keys weights)
+        weight-of (fn [metric-key] (max 0 (get weights metric-key 0)))
         maxima (into {}
                      (map (fn [metric-key]
                             [metric-key (reduce max 0 (map #(log-scaled (get % metric-key 0))

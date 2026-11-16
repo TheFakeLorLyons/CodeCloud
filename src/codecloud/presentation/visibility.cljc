@@ -1,8 +1,8 @@
 (ns codecloud.presentation.visibility
-  "Which pages the filter shows: named views, folders and files shown
-  alone or hidden, and hidden languages. The view measures the shown pages
-  among themselves, so hiding pages moves the weights, colors, and layout
-  of the rest."
+  "Which pages the filter shows, through named views, folders and files
+  shown alone or hidden, and hidden languages. The view measures the
+  shown pages among themselves, so hiding pages moves the weights,
+  colors, and layout of the rest."
   (:require [clojure.string :as string]
             [codecloud.collections :as collections]
             [codecloud.languages.catalog :as catalog]
@@ -13,9 +13,7 @@
 (def no-filter
   {:active-views #{} :only [] :hidden [] :hidden-languages #{}})
 
-(defn filtering?
-  "True when the filter hides anything."
-  [{:keys [active-views only hidden hidden-languages]}]
+(defn filtering? [{:keys [active-views only hidden hidden-languages]}]
   (boolean (or (seq active-views) (seq only) (seq hidden) (seq hidden-languages))))
 
 (defn- active-selections [named-views active-views]
@@ -53,21 +51,15 @@
   [patterns]
   (assoc no-filter :only (vec (distinct patterns))))
 
-(defn hide
-  "The filter with `patterns` hidden as well."
-  [filter-state patterns]
+(defn hide [filter-state patterns]
   (update filter-state :hidden #(vec (distinct (concat % patterns)))))
 
-(defn toggle-view
-  "The filter with the named view switched on or off."
-  [filter-state view-label]
+(defn toggle-view [filter-state view-label]
   (update filter-state :active-views
           #(let [active (set %)]
              (if (contains? active view-label) (disj active view-label) (conj active view-label)))))
 
-(defn namespace-patterns
-  "Patterns matching the files of one page."
-  [snapshot namespace-id]
+(defn namespace-patterns [snapshot namespace-id]
   (mapv (comp selection/file-pattern :path) (get-in snapshot [:namespaces namespace-id :files])))
 
 (defn neighborhood-patterns
@@ -80,9 +72,7 @@
 
 ;; Showing and hiding pages, folders, and languages
 
-(defn- inside?
-  "True when `path` lies in the folder `directory`, at any depth."
-  [path directory]
+(defn- inside? [path directory]
   (or (= "" directory) (string/starts-with? path (str directory "/"))))
 
 (defn- pattern-path
@@ -95,9 +85,7 @@
     (string/ends-with? pattern "/") {:path (subs pattern 1 (dec (count pattern))) :folder? true}
     :else {:path (subs pattern 1) :folder? false}))
 
-(defn- page-paths
-  "Paths of the files of the pages `ids`."
-  [snapshot ids]
+(defn- page-paths [snapshot ids]
   (into [] (comp (mapcat #(get-in snapshot [:namespaces % :files])) (map :path)) ids))
 
 (defn pages-under
@@ -110,17 +98,13 @@
               (map key))
         (:namespaces snapshot)))
 
-(defn pages-in-language
-  "Ids of the pages in `language-id`."
-  [snapshot language-id]
+(defn pages-in-language [snapshot language-id]
   (into #{}
         (comp (filter (fn [[_id node]] (= language-id (page/language-of node))))
               (map key))
         (:namespaces snapshot)))
 
-(defn hide-pages
-  "The filter with the pages `ids` hidden as well."
-  [filter-state snapshot ids]
+(defn hide-pages [filter-state snapshot ids]
   (hide filter-state (mapv selection/file-pattern (page-paths snapshot ids))))
 
 (defn hide-folder
@@ -135,14 +119,12 @@
                                      hidden))))
       (hide [(selection/directory-pattern directory)])))
 
-(defn hide-language
-  "The filter with the pages of `language-id` hidden as well."
-  [filter-state language-id]
+(defn hide-language [filter-state language-id]
   (update filter-state :hidden-languages #(conj (set %) language-id)))
 
 (defn- split-folder
   "Patterns hiding everything under `directory` except the files in
-  `kept-paths`: whole subfolders that hold none of them, and single files
+  `kept-paths`, whole subfolders holding none of them and single files
   beside them."
   [directory kept-paths paths]
   (let [prefix (if (= "" directory) "" (str directory "/"))
@@ -163,7 +145,7 @@
           (sort-by key children))))
 
 (defn- spared-patterns
-  "What hidden `pattern` becomes once the files in `kept-paths` must show:
+  "What hidden `pattern` becomes once the files in `kept-paths` must show,
   the pattern itself when it hides none of them, and otherwise patterns
   for the rest of what it hid."
   [pattern kept-paths paths]
@@ -176,10 +158,9 @@
       :else (into [] (comp (remove kept-paths) (map selection/file-pattern)) matched))))
 
 (defn reveal
-  "The filter changed as little as it can so the pages `ids` show: a hidden
-  language gives way, with its other pages hidden one by one; a hidden
-  pattern over them splits into the parts around them; and pages outside
-  the active views join :only."
+  "The filter changed as little as it can so the pages `ids` show,
+  splitting hidden patterns around them and adding them to :only outside
+  the active views."
   [filter-state snapshot named-views ids]
   (let [target-ids (set ids)
         kept-paths (set (page-paths snapshot target-ids))
@@ -209,7 +190,8 @@
                                                                 (page-paths snapshot outside)))))))))
 
 (defn shown-share
-  "How much of `ids` shows among `visible-ids`: :all, :none, or :some."
+  "How much of `ids` shows among `visible-ids`, one of :all, :none, and
+  :some."
   [visible-ids ids]
   (let [shown-count (count (filter visible-ids ids))]
     (cond
@@ -289,9 +271,7 @@
     (conj (vec (take most labels)) (str (- (count labels) most) " more"))
     labels))
 
-(defn describe
-  "What the filter shows and hides, or nil."
-  [{:keys [active-views only hidden hidden-languages] :as filter-state}]
+(defn describe [{:keys [active-views only hidden hidden-languages] :as filter-state}]
   (when (filtering? filter-state)
     (let [most-named 3
           view-phrase (when (seq active-views)

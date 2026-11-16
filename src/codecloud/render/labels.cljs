@@ -22,9 +22,7 @@
         (if badge badge-padding 0))
      height]))
 
-(defn- overlaps-any?
-  "True when the box [left right top bottom] overlaps one of `boxes`."
-  [[left right top bottom] boxes]
+(defn- overlaps-any? [[left right top bottom] boxes]
   (reduce (fn [_ [other-left other-right other-top other-bottom]]
             (if (and (< left other-right) (< other-left right) (< top other-bottom) (< other-top bottom))
               (reduced true)
@@ -58,9 +56,7 @@
 (defn- label-element []
   (dom/element [:span.cloud-label [:span.label-badge ""] [:span.label-prefix ""] [:span.label-leaf ""]]))
 
-(defn- show-content!
-  "Writes a label's words and kind into its element."
-  [^js element {:keys [kind badge prefix leaf]}]
+(defn- show-content! [^js element {:keys [kind badge prefix leaf]}]
   (dom/set-text! (dom/find-in element ".label-badge") (or badge ""))
   (dom/set-text! (dom/find-in element ".label-prefix") prefix)
   (dom/set-text! (dom/find-in element ".label-leaf") leaf)

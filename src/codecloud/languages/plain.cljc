@@ -1,6 +1,6 @@
 (ns codecloud.languages.plain
-  "Facts every text file has: its lines, longest line, and text flags.
-  Other adapters build on these."
+  "Facts every text file has, its lines, longest line, and text flags,
+  which other adapters build on."
   (:require [codecloud.model.complection :as complection]
             [codecloud.model.source :as source]))
 
@@ -22,8 +22,6 @@
    :flag-counts (complection/text-flags (complection/compile-flags flags) normalized-text)
    :parse-error nil})
 
-(defn read-plain
-  "Facts of a file read as plain text in `language-id`."
-  [language-id path text options]
+(defn read-plain [language-id path text options]
   (let [normalized-text (source/normalize-text text)]
     (base-facts language-id path normalized-text (source/split-lines normalized-text) options)))

@@ -1,12 +1,10 @@
 (ns codecloud.languages.c-family
-  "Reads C and C++: the headers each file includes, the names it uses,
-  and its definitions, measured with the shared token rules. tree-sitter's
-  syntax tree says what a file defines and where, and the braces among
-  the tokens say where each body ends, which a macro or an #if can hide
-  from the tree. A C++ module's declarations and imports are read from
-  the tokens and blanked for a grammar that predates modules. A header
-  names the source file it sits beside when the pairing is unique, and a
-  module's interface its implementation."
+  "Reads C and C++ files for the headers each includes, the names it uses,
+  and its definitions, measured with the shared token rules.
+  tree-sitter's syntax tree says what a file defines and where, and the
+  braces among the tokens say where each body ends, which a macro or an
+  #if can hide from the tree. A C++ module's declarations and imports are
+  read from the tokens and blanked for a grammar that predates modules."
   (:require [clojure.string :as string]
             [codecloud.languages.scanner :as scanner]
             [codecloud.languages.structure :as structure]
@@ -16,9 +14,9 @@
 ;; name carries its node's text.
 
 (def ^:private shared-patterns
-  "What both grammars answer: functions with their bodies, storage, and
-  any macro call standing in for a signature, then types, macros, values
-  at file scope, and the top-level forms."
+  "What both grammars answer, which is functions with their bodies,
+  storage, and any macro call standing in for a signature, then types,
+  macros, values at file scope, and the top-level forms."
   ["(function_definition body: (_) @function.body) @function"
    "(function_definition !type declarator: (function_declarator) @function.call.name) @function.untyped"
    "(function_definition (storage_class_specifier) @function.storage.name) @function.stored"
@@ -59,9 +57,9 @@
   #{"namespace" "template" "typename" "virtual" "constexpr" "nullptr" "noexcept" "decltype" "explicit"})
 
 (defn cpp-code?
-  "True when significant tokens, read as C++, hold code only C++ writes:
-  a scope operator, a word of C++'s own, a class with a body or a base,
-  or an access label."
+  "True when significant tokens, read as C++, hold code only C++ writes,
+  such as a scope operator, a word of C++'s own, a class with a body or a
+  base, or an access label."
   [tokens]
   (let [merged (structure/merged-operators tokens)]
     (boolean
@@ -167,9 +165,9 @@
           :else (recur (inc index) open-indexes closes))))))
 
 (defn- token-layout
-  "What finding definitions among tokens needs: the tokens, the position
-  of each, their bracket depths, where each { closes, and the lines that
-  hold preprocessor directives."
+  "What finding definitions among tokens needs, which is the tokens, the
+  position of each, their bracket depths, where each { closes, and the
+  lines holding preprocessor directives."
   [tokens]
   {:tokens tokens
    :positions (mapv start-of tokens)
@@ -179,9 +177,7 @@
                           (keep #(when (and (= :reader (:kind %)) (string/starts-with? (:text %) "#")) (:line %)))
                           tokens)})
 
-(defn- index-at
-  "Index of the first token at or after `position`."
-  [positions position]
+(defn- index-at [positions position]
   (loop [low 0
          high (count positions)]
     (if (< low high)
@@ -203,30 +199,24 @@
       (when-let [close (get closes index)]
         [index close]))))
 
-(defn- brace-extent
-  "{:start :end}, the positions of the braces a capture starts with, or
-  nil."
-  [layout capture]
+(defn- brace-extent [layout capture]
   (when-let [[open close] (brace-block layout capture)]
     {:start (nth (:positions layout) open)
      :end (nth (:positions layout) close)}))
 
-(defn- enclosing
-  "The innermost of `extents`, sorted by start, holding `position`."
-  [extents position]
+(defn- enclosing [extents position]
   (last (filter #(< (:start %) position (:end %)) extents)))
 
 (defn- declaration-end?
-  "True for a token after which a declaration can begin: a brace, an
-  access label's colon, or anything ending in a semicolon, such as the
+  "True for a token after which a declaration can begin, which is a brace,
+  an access label's colon, or anything ending in a semicolon, such as the
   >; closing a template argument list."
   [{:keys [text]}]
   (or (contains? #{"{" "}" ":"} text) (string/ends-with? text ";")))
 
 (defn- declaration-line
-  "The line a definition whose name stands at token `name-index` begins
-  on: after the last ; { } or : before the name, past preprocessor lines,
-  so a template line or a return type on its own line belongs to it."
+  "The line a definition named at `name-index` begins on, so a template
+  line or a return type on its own line belongs to it."
   [{:keys [tokens directive-lines]} name-index]
   (let [after-end (loop [index (dec name-index)]
                     (cond
@@ -241,16 +231,12 @@
 
 ;; Names
 
-(defn- word-at?
-  "True when `word` stands alone at `index` of `text`."
-  [text index word]
+(defn- word-at? [text index word]
   (let [word-character? (fn [character] (boolean (and character (re-matches #"[A-Za-z0-9_]" (str character)))))]
     (and (not (word-character? (get text (dec index))))
          (not (word-character? (get text (+ index (count word))))))))
 
-(defn- operator-start
-  "Index of the word operator in `text`, or nil."
-  [text]
+(defn- operator-start [text]
   (loop [from 0]
     (when-let [index (string/index-of text "operator" from)]
       (if (word-at? text index "operator") index (recur (inc index))))))
@@ -294,9 +280,7 @@
   (or (re-find #"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*" (clean-name text))
       (clean-name text)))
 
-(defn- macro-call-name?
-  "True for a name in capitals, as macros such as TEST are written."
-  [text]
+(defn- macro-call-name? [text]
   (boolean (re-matches #"[A-Z][A-Z0-9_]*" text)))
 
 (defn- qualified
@@ -344,10 +328,9 @@
                  functions)))
 
 (defn- function-entries
-  "A definition for each function with a brace body, named by the last
-  name before its body and after its class, with the token indexes of its
-  braces as :body. A macro standing in for a signature, as with
-  TEST(Suite, Case), names the function by its whole call."
+  "A definition for each function with a brace body. A macro standing in
+  for a signature, as with TEST(Suite, Case), names the function by its
+  whole call."
   [by-kind layout scopes private-scopes]
   (let [{:keys [tokens positions]} layout
         names (into (sorted-map) (map (fn [{capture :function.name}] [(start-of capture) capture])) (:function.name by-kind))
@@ -386,10 +369,9 @@
           (outermost functions))))
 
 (defn- named-entries
-  "A definition of `kind` for each of `matches`, whose node is captured as
-  `kind` and its name as kind.name, read through `name-of`: led by its
-  class among `scopes`, starting with any template line before it, and
-  ending where its braces do when it has a body."
+  "A definition of `kind` for each of `matches`, led by its class among
+  `scopes`, starting with any template line and ending where its braces
+  do."
   [kind name-of matches layout scopes private-scopes]
   (map (fn [match]
          (let [node (get match kind)
@@ -471,10 +453,7 @@
       {:name (apply str module-words)
        :partition (when (seq partition-words) (apply str (rest partition-words)))})))
 
-(defn- header-unit
-  "[specifier system?] of the header an import names in angle brackets or
-  quotes, or nil."
-  [[first-word :as words]]
+(defn- header-unit [[first-word :as words]]
   (cond
     (= "<" first-word) [(apply str (take-while #(not= ">" %) (rest words))) true]
     (and first-word (string/starts-with? first-word "\"")) [(scanner/unquoted first-word) false]
@@ -492,10 +471,8 @@
         :else (recur (inc index))))))
 
 (defn- module-statement
-  "The module declaration or import whose line's code starts at token
-  `index`, with export or with module or import, as {:keyword :export?
-  :words :line :start :end}, :words being the texts between the keyword
-  and the semicolon and :start and :end the tokens it spans, or nil."
+  "The module declaration or import starting at token `index`, as
+  {:keyword :export? :words :line :start :end}, or nil."
   [tokens index]
   (let [{:keys [text line]} (nth tokens index)
         previous (scanner/token-at tokens (dec index))
@@ -530,24 +507,22 @@
   "The module a file's statements declare, as {:name :partition :export?
   :line}, or nil outside any module."
   [statements]
-  (some (fn [{:keys [keyword export? words line]}]
-          (when (= "module" keyword)
-            (let [{declared-name :name partition :partition} (module-name words)]
+  (some (fn [{statement-keyword :keyword :keys [export? words line]}]
+          (when (= "module" statement-keyword)
+            (let [{declared-name :name declared-partition :partition} (module-name words)]
               (when (seq declared-name)
-                {:name declared-name :partition partition :export? export? :line line}))))
+                {:name declared-name :partition declared-partition :export? export? :line line}))))
         statements))
 
 (defn- module-imports
-  "Imports for a module unit's import statements, each a module by name,
-  a partition of the file's own module, or a header unit read through
-  the include resolver, and for an implementation unit, its module's
-  interface."
-  [statements {own-name :name :keys [partition export? line] :as unit}]
+  "Imports for a module unit's import statements, and for an
+  implementation unit, its module's interface."
+  [statements {own-name :name own-partition :partition :keys [export? line] :as unit}]
   (let [module-import (fn [specifier import-line]
                         {:specifier specifier :kind :import :resolver :cpp-module :line import-line :binds []})]
-    (into (if (and unit (not export?) (nil? partition)) [(module-import own-name line)] [])
-          (keep (fn [{:keys [keyword words] statement-line :line}]
-                  (when (= "import" keyword)
+    (into (if (and unit (not export?) (nil? own-partition)) [(module-import own-name line)] [])
+          (keep (fn [{statement-keyword :keyword :keys [words] statement-line :line}]
+                  (when (= "import" statement-keyword)
                     (if-let [[header system?] (header-unit words)]
                       {:specifier header :kind :import :resolver :c-include :system? system? :line statement-line
                        :binds []}
@@ -589,10 +564,8 @@
         (apply str (conj parts (subs text written)))))))
 
 (defn- module-reading
-  "{:unit :imports :parsed-text} of a C++ file: the module it declares,
-  its module imports, and its text for the grammar, module statements
-  and export keywords blanked. A file without a line that could start a
-  module statement reads as it is."
+  "{:unit :imports :parsed-text} of a C++ file, its text for the grammar
+  with module statements and export keywords blanked."
   [language text text-lines]
   (if (and (= :cpp language) (re-find module-marks text))
     (let [tokens (scanner/significant (scanner/token-stream :cpp text-lines))
@@ -613,10 +586,8 @@
 ;; Reading a file
 
 (defn read-file
-  "Facts of a C or C++ file in `language-id`: its includes and module
-  imports, the module it declares, the names it uses, and its
-  definitions with their complection, from the syntax tree `parse-tree`
-  answers queries about, when given."
+  "Facts of a C or C++ file, from the syntax tree `parse-tree` answers
+  queries about, when given."
   [language-id path text {:keys [parse-tree] :as options}]
   (let [normalized-text (source/normalize-text text)
         text-lines (source/split-lines normalized-text)
@@ -639,9 +610,7 @@
   "The functions a program starts from."
   #{"main" "wmain" "WinMain"})
 
-(defn- stem
-  "A path's file name without its last extension."
-  [path]
+(defn- stem [path]
   (let [file-name (source/file-name path)
         dot-index (string/last-index-of file-name ".")]
     (if (and dot-index (pos? dot-index)) (subs file-name 0 dot-index) file-name)))
@@ -658,24 +627,22 @@
       :else :inline)))
 
 (defn- unit-role
-  "A C or C++ file's role: for a module unit, :interface when it exports
-  its module and :implementation otherwise, else its extension's role."
+  "A C or C++ file's role, which for a module unit is :interface when it
+  exports its module and :implementation otherwise, and else its
+  extension's role."
   [{:keys [path module]}]
   (cond
     (nil? module) (file-role path)
     (:export? module) :interface
     :else :implementation))
 
-(defn- in-folder-of
-  "Those of `paths` in the same folder as `path`."
-  [paths path]
+(defn- in-folder-of [paths path]
   (filter #(= (source/directory-of %) (source/directory-of path)) paths))
 
 (defn- stem-pairs
-  "Map from a header or inline file's path to the path of its companion,
-  among files sharing one stem: the lone source in its folder, else the
-  one source and one header left over anywhere. An inline file follows
-  the header beside it."
+  "Map from a header or inline file's path to its companion among files
+  sharing its stem, the lone source in its folder, else the one source
+  and header left anywhere."
   [paths]
   (let [{sources :source headers :header inlines :inline} (group-by file-role paths)
         beside-source (into {}
@@ -703,7 +670,7 @@
 
 (defn- module-pairs
   "Map from each module's primary interface unit to its implementation
-  unit: the only one, or else the only one sharing the interface's stem."
+  unit, the only one or else the only one sharing the interface's stem."
   [file-facts]
   (into {}
         (keep (fn [units]
@@ -718,11 +685,9 @@
                         (filter #(and (:module %) (nil? (get-in % [:module :partition]))) file-facts)))))
 
 (defn with-companions
-  "File facts with each C or C++ file's :file-role, and each header,
-  inline file, and module interface naming as its :companion the file
-  whose page it sits beside: Board.hpp beside Board.cpp, include/filter.h
-  beside src/filter.c when no other filter source exists, or a module's
-  interface beside its implementation. A program pairs with no header."
+  "File facts with each C or C++ file's :file-role and each header's
+  :companion, the file whose page it sits beside, as Board.hpp beside
+  Board.cpp."
   [file-facts]
   (let [c-family? #(contains? #{:c :cpp} (:language %))
         paths (keep (fn [facts]

@@ -8,9 +8,7 @@
   (let [nonce-bytes 18]
     (.toString (.randomBytes crypto nonce-bytes) "base64")))
 
-(defn page-html
-  "HTML for the cloud view."
-  [{:keys [csp-source script-uri style-uri nonce]}]
+(defn page-html [{:keys [csp-source script-uri style-uri nonce]}]
   (str "<!DOCTYPE html>\n"
        "<html lang=\"en\">\n"
        "<head>\n"

@@ -1,7 +1,8 @@
 (ns codecloud.presentation.arrangement
-  "Ways to arrange the cloud: :folders, a cloud per folder with pages
-  leaning toward what they use; :relations, placed by dependencies alone;
-  and ranked walls in reading order, largest first."
+  "Ways to arrange the cloud. The :folders arrangement makes a cloud per
+  folder with pages leaning toward what they use, :relations places pages
+  by their dependencies alone, and the ranked walls set them in reading
+  order, largest first."
   (:require [codecloud.model.source :as source]
             [codecloud.presentation.layout :as layout]))
 
@@ -122,8 +123,8 @@
        (* largest-share (reduce max 0 page-radii)))))
 
 (defn- folder-links
-  "Links between folders: one per dependent pair, weighted by count, and
-  lighter ones keeping siblings and parents close."
+  "Links between folders, one for each dependent pair, weighted by count,
+  and lighter ones keeping siblings and parents close."
   [folder-of-id edges folders]
   (let [dependency-pairs (frequencies
                           (keep (fn [{:keys [from to]}]
@@ -200,9 +201,9 @@
           folders)))
 
 (defn- folder-page-links
-  "`edges` as links for pages inside folder clouds: full strength within a
-  folder, and a light pull across folders, so each cloud keeps its round
-  shape and only leans toward the folders it uses."
+  "`edges` as links for pages inside folder clouds, at full strength
+  within a folder and as a light pull across folders, so each cloud keeps
+  its round shape and only leans toward the folders it uses."
   [edges visuals]
   (let [across-share 0.15]
     (mapv (fn [{:keys [from to] :as edge}]
@@ -212,9 +213,9 @@
           edges)))
 
 (defn layout-request
-  "What the renderer needs to place pages: {:kind :simulation :links
-  :options}, with :anchors and :folder-plan for folders, or {:kind :slots
-  :order :slots} for a ranked wall."
+  "What the renderer needs to place pages, either {:kind :simulation
+  :links :options}, with :anchors and :folder-plan for folders, or {:kind
+  :slots :order :slots} for a ranked wall."
   [arrangement-key snapshot visuals edges radius-of]
   (let [{chosen-key :key metric :metric} (arrangement arrangement-key)
         ;; Inside a folder's cloud, anchors hold the pages and gravity is

@@ -1,6 +1,6 @@
 (ns codecloud.io.files
-  "File access for the analyzer: reading text, hashing it as git does, and
-  walking folders outside git."
+  "File access for the analyzer, which reads text, hashes it as git does,
+  and walks folders outside git."
   (:require ["crypto" :as crypto]
             ["fs" :as fs]
             ["path" :as path]
@@ -27,6 +27,9 @@
   (-> (.mkdir (.-promises fs) (path/dirname file-path) #js {:recursive true})
       (task/then (fn [_] (.writeFile (.-promises fs) file-path text "utf8")))))
 
+(defn path-exists? [file-path]
+  (.existsSync fs file-path))
+
 (defn content-key
   "The git blob id of `text`, so a file on disk shares cache entries with
   the same blob from history."
@@ -36,6 +39,16 @@
         (.update (str "blob " (.-length content) "\u0000"))
         (.update content)
         (.digest "hex"))))
+
+(defn stamp
+  "Resolves to what changes with a file's content, its times, size, and
+  inode, or nil when it is not a readable file."
+  [file-path]
+  (-> (.stat (.-promises fs) file-path)
+      (task/then (fn [^js stats]
+                   (when (.isFile stats)
+                     [(.-mtimeMs stats) (.-ctimeMs stats) (.-size stats) (.-ino stats)])))
+      (task/recover (fn [_error] nil))))
 
 (defn- directory-entries [directory]
   (-> (.readdir (.-promises fs) directory #js {:withFileTypes true})

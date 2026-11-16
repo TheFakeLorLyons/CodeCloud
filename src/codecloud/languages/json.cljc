@@ -45,9 +45,7 @@
             (recur (+ 2 position) (conj pieces (get escaped-characters escaped escaped)))))
         :else (recur (inc position) (conj pieces character))))))
 
-(defn- text-at
-  "Up to `length` characters of `text` from `index`."
-  [text index length]
+(defn- text-at [text index length]
   (subs text index (min (count text) (+ index length))))
 
 (defn- read-number-at [text index]
@@ -85,9 +83,7 @@
     (let [[value after-value] (read-value-at text (blank-end text (inc colon)))]
       [[entry-key value] after-value])))
 
-(defn- read-value-at
-  "[value end] for the JSON value starting at `index`."
-  [text index]
+(defn- read-value-at [text index]
   (let [character (character-at text index)]
     (cond
       (= "{" character) (let [[entries end] (read-items-at text index "}" read-entry-at)]
@@ -99,9 +95,7 @@
       (= "null" (text-at text index 4)) [nil (+ index 4)]
       :else (read-number-at text index))))
 
-(defn read-json
-  "The value of JSON `text`, or nil when the text does not hold JSON."
-  [text]
+(defn read-json [text]
   (try
     (first (read-value-at text (blank-end text 0)))
     (catch #?(:clj Exception :cljs :default) _error

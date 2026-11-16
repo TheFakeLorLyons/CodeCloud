@@ -1,7 +1,9 @@
 (ns codecloud.render.hud.inspector
-  "Details of the lifted page or folder: measurements, colors,
-  dependencies, cycles, parse errors, notable definitions, and its files."
+  "Details of the lifted page or folder, from its measurements, colors,
+  dependencies, cycles, and parse errors to its notable definitions and
+  its files."
   (:require [clojure.string :as string]
+            [codecloud.counting :as counting]
             [codecloud.model.selection :as selection]
             [codecloud.model.source :as source]
             [codecloud.presentation.arrangement :as arrangement]
@@ -39,9 +41,9 @@
      :else nil)])
 
 (defn- header
-  "The panel's header: the name, which shows the details again while they
-  are minimized, a button minimizing them to this header, and one setting
-  the page or folder back."
+  "The panel's header, holding the name, which shows the details again
+  while they are minimized, a button minimizing them to this header, and
+  one setting the page or folder back."
   [dispatch name-parts]
   [:header.inspector-header
    [:h2.inspector-name {:on-click (fn [^js event]
@@ -54,18 +56,18 @@
      icons/close]]])
 
 (defn- complection-reasons
-  "Why a definition scores: measurements past their thresholds, and
+  "Why a definition scores, as measurements past their thresholds and
   flags."
   [{:keys [lines branches nesting asynchronous state flags]}]
   (string/join ", "
                (concat (remove nil?
-                               [(when lines (words/counted lines "line" "lines"))
-                                (when branches (words/counted branches "branch" "branches"))
+                               [(when lines (counting/counted lines "line" "lines"))
+                                (when branches (counting/counted branches "branch" "branches"))
                                 (when nesting (str "nested " nesting " deep"))
-                                (when asynchronous (words/counted asynchronous "asynchronous call" "asynchronous calls"))
-                                (when state (words/counted state "change to state" "changes to state"))])
+                                (when asynchronous (counting/counted asynchronous "asynchronous call" "asynchronous calls"))
+                                (when state (counting/counted state "change to state" "changes to state"))])
                        (for [[flag-name occurrences] (sort-by (comp name key) flags)]
-                         (words/counted occurrences (str (name flag-name) " flag") (str (name flag-name) " flags"))))))
+                         (counting/counted occurrences (str (name flag-name) " flag") (str (name flag-name) " flags"))))))
 
 (defn- definition-button [dispatch namespace-id {definition-name :name :keys [path line]} detail]
   [:button.definition {:on-click #(dispatch [:show-definition {:namespace-id namespace-id :path path :line line}])}
@@ -95,14 +97,14 @@
        [:ul.definition-list
         (for [{:keys [inbound-count] :as definition} most-used]
           [:li (definition-button dispatch namespace-id definition
-                                  (if (pos? inbound-count) (words/counted inbound-count "use" "uses") ""))])]])))
+                                  (if (pos? inbound-count) (counting/counted inbound-count "use" "uses") ""))])]])))
 
 (defn- ranking-line
   "A page's place on a ranked wall, such as \"#3 of 61 in Longest files,
   with 812 lines\"."
   [{:keys [rank total label value unit]}]
   (let [[singular plural] unit]
-    [:p.inspector-rank (str "#" rank " of " total " in " label ", with " (words/counted value singular plural))]))
+    [:p.inspector-rank (str "#" rank " of " total " in " label ", with " (counting/counted value singular plural))]))
 
 (defn- cycle-section [dispatch state found-cycle]
   (let [first-member (get-in state [:snapshot :namespaces (first (:path found-cycle))])]
@@ -164,10 +166,10 @@
      (when ranking (ranking-line ranking))
      (when-let [paragraph (words/first-paragraph (:doc node))] [:p.inspector-doc paragraph])
      [:dl.inspector-metrics
-      [:div [:dt "Functions"] [:dd (words/formatted-count (:functions metrics))]]
-      [:div [:dt "Used elsewhere"] [:dd (words/formatted-count (:references metrics))]]
-      [:div [:dt "Lines"] [:dd (words/formatted-count (:lines metrics))]]
-      [:div [:dt used-by] [:dd (words/formatted-count (:dependents metrics))]]]
+      [:div [:dt "Functions"] [:dd (counting/grouped-digits (:functions metrics))]]
+      [:div [:dt "Used elsewhere"] [:dd (counting/grouped-digits (:references metrics))]]
+      [:div [:dt "Lines"] [:dd (counting/grouped-digits (:lines metrics))]]
+      [:div [:dt used-by] [:dd (counting/grouped-digits (:dependents metrics))]]]
      (color-section dispatch state namespace-id node)
      (when found-cycle (cycle-section dispatch state found-cycle))
      (when parse-error (parse-error-section parse-error))
@@ -178,16 +180,11 @@
      (most-used-section dispatch namespace-id definitions)
      (open-file-buttons dispatch files historical?))))
 
-(defn- folder-namespace-ids
-  "Ids of the namespaces whose files live in `directory`."
-  [snapshot directory]
+(defn- folder-namespace-ids [snapshot directory]
   (sort (keep (fn [[id node]] (when (= directory (page/directory node)) id))
               (:namespaces snapshot))))
 
-(defn- folder-color-section
-  "The folder's color while the folder layer is on, chosen with a click on
-  its dot."
-  [dispatch {:keys [active-layers layer-registry layer-contexts]} directory label]
+(defn- folder-color-section [dispatch {:keys [active-layers layer-registry layer-contexts]} directory label]
   (when (contains? active-layers :folder)
     (when-let [colors (layers/target-color layer-registry layer-contexts [:folder directory])]
       [:section.inspector-section
@@ -205,10 +202,10 @@
      (header dispatch label)
      [:p.inspector-kind "Folder"]
      [:dl.inspector-metrics
-      [:div [:dt (words/capitalized plural)] [:dd (words/formatted-count (count member-ids))]]
-      [:div [:dt "Lines"] [:dd (words/formatted-count line-total)]]
+      [:div [:dt (words/capitalized plural)] [:dd (counting/grouped-digits (count member-ids))]]
+      [:div [:dt "Lines"] [:dd (counting/grouped-digits line-total)]]
       (when (pos? cyclic-count)
-        [:div [:dt "In a cycle"] [:dd (words/formatted-count cyclic-count)]])]
+        [:div [:dt "In a cycle"] [:dd (counting/grouped-digits cyclic-count)]])]
      (folder-color-section dispatch state directory (str (:prefix label) (:leaf label)))
      (chip-section dispatch state (str (words/capitalized plural) " here")
                    (sort-by #(- (get-in snapshot [:namespaces % :importance] 0)) member-ids)

@@ -1,11 +1,12 @@
 (ns codecloud.render.text
-  "Text drawn into canvases for three.js textures: tiles of code in the
-  editor's font, name bands, and the large names of the names-only view."
+  "Text drawn into canvases for three.js textures, the tiles of code in
+  the editor's font, the name bands, and the large names of the
+  names-only view."
   (:require ["three" :as three]
             [clojure.string :as string]
             [codecloud.model.source :as source]
             [codecloud.presentation.code-colors :as code-colors]
-            [codecloud.presentation.editing :as editing]
+            [codecloud.presentation.editing-state :as editing-state]
             [codecloud.presentation.highlight :as highlight]
             [codecloud.presentation.page :as page]
             [codecloud.presentation.palette :as palette]))
@@ -44,9 +45,7 @@
 (defonce ^:private measuring-context
   (delay (.getContext (canvas 1 1) "2d")))
 
-(defn- text-width
-  "Width of `text` set in `font`, in canvas pixels."
-  [font text]
+(defn- text-width [font text]
   (let [^js context @measuring-context]
     (set! (.-font context) font)
     (.-width (.measureText context text))))
@@ -75,17 +74,16 @@
   (str weight " " (* level (/ size line-pixels)) "px " (code-font-family family)))
 
 (defn- visible-runs
-  "[kind text column depth] for each token of a line, tabs turned into
-  the spaces reaching their stops, cut to `code-characters` screen columns
-  with an ellipsis. The depth counts the brackets open at the token, from
-  `depth` where the line starts."
+  "[kind text column depth] for each token of a line, tabs expanded to
+  their stops, cut to `code-characters` columns with an ellipsis, the
+  depth counting brackets open from `depth`."
   [tokens code-characters depth]
   (loop [remaining tokens
          column 0
          depth depth
          kept []]
     (if-let [[kind text :as token] (first remaining)]
-      (let [shown (editing/expand-tabs text column page/tab-size)
+      (let [shown (editing-state/expand-tabs text column page/tab-size)
             room (- code-characters column)
             [token-depth next-depth] (highlight/bracket-step depth token)]
         (cond
@@ -138,9 +136,9 @@
     {:texture (texture-from-canvas tile-canvas)}))
 
 (defn title-texture
-  "{:texture :aspect} of a page's name band: its place on a ranked wall,
-  its language tag, a light prefix, and its own name, with a dot when a
-  file of the page has unsaved changes."
+  "{:texture :aspect} of a page's name band, holding its place on a ranked
+  wall, its language tag, a light prefix, and its own name, with a dot
+  when a file of the page has unsaved changes."
   [editor-font {:keys [rank tag prefix dirty?] page-leaf :leaf} level theme-name]
   (let [leaf (if dirty? (str page-leaf " ●") page-leaf)
         prefix-font (code-font editor-font level "400")

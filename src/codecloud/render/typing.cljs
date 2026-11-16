@@ -5,7 +5,7 @@
   the host routes it, and sits at the caret so input methods open beside
   it."
   (:require [clojure.string :as string]
-            [codecloud.presentation.editing :as editing]
+            [codecloud.presentation.editing-state :as editing-state]
             [codecloud.render.dom :as dom]))
 
 (defn mac?
@@ -13,12 +13,26 @@
   []
   (string/includes? (or (.-platform js/navigator) "") "Mac"))
 
+(defn- evaluation-scope
+  "The scope Enter evaluates with `event`'s modifiers, as Calva binds
+  them, or nil for Enter and Shift+Enter, which break the line. Cmd
+  stands for Ctrl on macOS."
+  [^js event]
+  (let [control? (or (.-ctrlKey event) (.-metaKey event))
+        shift? (.-shiftKey event)
+        alt? (.-altKey event)]
+    (cond
+      (and control? alt? shift?) :file-to-caret
+      (and control? alt?) :to-caret
+      (and control? shift?) :enclosing
+      control? :form
+      (and alt? shift?) :top-level-to-caret
+      alt? :top-level)))
+
 (defn- key-edit
-  "The event a key press makes while editing, or nil for keys the editor
-  leaves to the browser and to VS Code, such as copying and the command
-  palette. Word moves take Ctrl, or Alt on macOS, and commands take Ctrl,
-  or Cmd on macOS. With Enter, a command evaluates the form at the caret,
-  Shift added the whole file, and Alt the top-level form."
+  "The event a key press makes while editing, or nil for keys left to the
+  browser and VS Code, such as copying and the command palette. Enter
+  with modifiers evaluates, and Tab formats Clojure."
   [^js event on-mac?]
   (let [shift? (.-shiftKey event)
         command? (if on-mac? (.-metaKey event) (.-ctrlKey event))
@@ -36,29 +50,47 @@
       "PageDown" [:edit :move :page-down shift?]
       "Backspace" [:edit :delete (if word? :word-left :left)]
       "Delete" [:edit :delete (if word? :word-right :right)]
-      "Enter" (cond
-                (and command? shift?) [:evaluate :file]
-                command? [:evaluate :form]
-                (.-altKey event) [:evaluate :top-level]
-                :else [:edit :break-line])
-      "Tab" (when-not command? (if shift? [:edit :outdent] [:edit :indent]))
+      "Enter" (if-let [scope (evaluation-scope event)] [:evaluate scope] [:edit :break-line])
+      "Tab" (when-not command? (if shift? [:edit :outdent] [:tab]))
       "Escape" [:end-editing]
-      (when (and command? (not (.-altKey event)))
-        (case typed-key
-          "z" (if shift? [:edit :redo] [:edit :undo])
-          "y" (when-not on-mac? [:edit :redo])
-          "a" [:edit :select-all]
-          "s" [:save-file]
-          "/" [:edit :comment]
-          nil)))))
+      (if (and shift? (.-altKey event) (not command?) (= "KeyF" (.-code event)))
+        [:format-code :file]
+        (when (and command? (not (.-altKey event)))
+          (case typed-key
+            "z" (if shift? [:edit :redo] [:edit :undo])
+            "y" (when-not on-mac? [:edit :redo])
+            "a" [:edit :select-all]
+            "s" [:save-file]
+            "/" [:edit :comment]
+            nil))))))
+
+(defn- chord-start?
+  "True for Ctrl+Alt+C, which begins Calva's chords. Where those keys
+  type a character, as AltGr+C does on some keyboards, the character
+  wins."
+  [^js event on-mac?]
+  (and (.-ctrlKey event) (.-altKey event) (not (.-shiftKey event)) (not (.-metaKey event))
+       (= "KeyC" (.-code event))
+       (or on-mac? (= "c" (string/lower-case (.-key event))))))
+
+(defn- chord-edit [^js event]
+  (cond
+    (= "Enter" (.-key event)) [:evaluate (if (.-shiftKey event) :file-with-requires :file)]
+    (and (.-ctrlKey event) (.-altKey event) (= "KeyD" (.-code event))) [:interrupt-evaluations]))
+
+(defn- modifier-only?
+  "True for a key press of a modifier alone, which leaves a chord
+  waiting."
+  [^js event]
+  (contains? #{"Control" "Alt" "AltGraph" "Shift" "Meta"} (.-key event)))
 
 (defn- mirror!
   "Puts the selected text, or the caret's whole line when nothing is
   selected, into the text area and selects it, so the browser's own copy
   and cut take it."
   [^js area buffer]
-  (let [held (if (editing/selected? buffer)
-               (editing/selected-text buffer)
+  (let [held (if (editing-state/selected? buffer)
+               (editing-state/selected-text buffer)
                (str (get (:lines buffer) (first (:caret buffer)) "") "\n"))]
     (when (not= held (.-value area))
       (set! (.-value area) held))
@@ -74,10 +106,44 @@
   [{:keys [^js area]}]
   (.focus area #js {:preventScroll true}))
 
+(defn- take-key! [^js event]
+  (.preventDefault event)
+  (.stopPropagation event))
+
+(defn- end-chord! [dispatch chord-waiting?]
+  (when @chord-waiting?
+    (reset! chord-waiting? false)
+    (dispatch [:chord nil])))
+
+(defn- key-down!
+  "Turns a key pressed in the text area into an edit, the chord's first key
+  into a wait for its second, and that second key into the chord's edit."
+  [dispatch {:keys [composing? chord-waiting? on-mac?]} ^js event]
+  (let [;; What browsers report as the key code while an input method composes.
+        composition-key-code 229]
+    (cond
+      (or @composing? (.-isComposing event) (= composition-key-code (.-keyCode event))) nil
+
+      ;; The key after the chord's first is the chord's, as in VS Code.
+      @chord-waiting?
+      (when-not (modifier-only? event)
+        (take-key! event)
+        (end-chord! dispatch chord-waiting?)
+        (some-> (chord-edit event) dispatch))
+
+      (chord-start? event on-mac?)
+      (do (take-key! event)
+          (reset! chord-waiting? true)
+          (dispatch [:chord "Ctrl+Alt+C"]))
+
+      :else
+      (when-let [edit (key-edit event on-mac?)]
+        (take-key! event)
+        (dispatch edit)))))
+
 (defn create-input
-  "A hidden text area in `container` that turns typing into events for
-  `dispatch`. `current-buffer` gives the buffer being edited, or nil.
-  Whatever the area held was selected, so its value after typing is
+  "A hidden text area in `container` turning typing into events for
+  `dispatch`. Whatever it held is selected, so its value after typing is
   exactly the text typed."
   [^js container dispatch current-buffer]
   (let [^js area (dom/element [:textarea.edit-input {:aria-label "Edit code"
@@ -87,20 +153,16 @@
                                                      :wrap "off"
                                                      :tabindex "-1"}])
         composing? (atom false)
-        on-mac? (mac?)
+        chord-waiting? (atom false)
+        key-state {:composing? composing? :chord-waiting? chord-waiting? :on-mac? (mac?)}
         typed! (fn [text]
                  (when (seq text) (dispatch [:edit :type text]))
                  (when-let [buffer (current-buffer)] (mirror! area buffer)))
         clipboard! (fn [^js event]
                      (.preventDefault event)
                      (.setData (.-clipboardData event) "text/plain" (.-value area)))]
-    (.addEventListener area "keydown"
-                       (fn [^js event]
-                         (when-not (or @composing? (.-isComposing event) (= 229 (.-keyCode event)))
-                           (when-let [edit (key-edit event on-mac?)]
-                             (.preventDefault event)
-                             (.stopPropagation event)
-                             (dispatch edit)))))
+    (.addEventListener area "keydown" #(key-down! dispatch key-state %))
+    (.addEventListener area "blur" (fn [_] (end-chord! dispatch chord-waiting?)))
     (.addEventListener area "input"
                        (fn [_] (when-not @composing? (typed! (.-value area)))))
     (.addEventListener area "compositionstart" (fn [_] (reset! composing? true)))
@@ -116,7 +178,7 @@
                          (when-let [buffer (current-buffer)]
                            (clipboard! event)
                            ;; Without a selection, cutting takes the caret's line.
-                           (when-not (editing/selected? buffer)
+                           (when-not (editing-state/selected? buffer)
                              (dispatch [:edit :select-line (:caret buffer)]))
                            (dispatch [:edit :cut]))))
     (.addEventListener area "paste"

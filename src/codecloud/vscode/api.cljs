@@ -2,7 +2,8 @@
   "The VS Code API slice CodeCloud uses, as functions over Clojure data.
   Only this namespace touches the vscode module."
   (:require ["path" :as path]
-            [cljs.reader :as reader]))
+            [cljs.reader :as reader]
+            [clojure.string :as string]))
 
 (def ^:private ^js vscode (js/require "vscode"))
 
@@ -38,20 +39,14 @@
 
 ;; Commands
 
-(defn register-command!
-  "Registers `handler` for a command; it receives the command's arguments."
-  [command-id handler]
+(defn register-command! [command-id handler]
   (.registerCommand (.-commands vscode) command-id (fn [& arguments] (apply handler arguments))))
 
-(defn execute-command
-  "Runs a command and resolves to its result."
-  [command-id & arguments]
+(defn execute-command [command-id & arguments]
   (let [^js commands (.-commands vscode)]
     (.apply (.-executeCommand commands) commands (into-array (cons command-id arguments)))))
 
-(defn set-context!
-  "Sets a when-clause context key."
-  [context-key value]
+(defn set-context! [context-key value]
   (execute-command "setContext" context-key value))
 
 ;; Messages and pickers
@@ -63,15 +58,10 @@
   (.then (.apply (.-showInformationMessage (.-window vscode)) (.-window vscode) (into-array (cons text choices)))
          #(when % %)))
 
-(defn status-message!
-  "Shows text in the status bar for `milliseconds`."
-  [text milliseconds]
+(defn status-message! [text milliseconds]
   (.setStatusBarMessage (.-window vscode) text milliseconds))
 
-(defn pick-folder
-  "Asks for a folder, starting at `starting-path`; resolves to its path or
-  nil."
-  [starting-path button-label]
+(defn pick-folder [starting-path button-label]
   (.then (.showOpenDialog (.-window vscode)
                           #js {:canSelectFiles false
                                :canSelectFolders true
@@ -91,17 +81,264 @@
                          #js {:placeHolder placeholder})
          (fn [^js chosen] (when chosen (:value (nth items (.-index chosen)))))))
 
+(defn choose
+  "Offers `items` under `title`, each {:label :description :detail
+  :value} or {:separator label}, with `placeholder` in the filter box;
+  resolves to the chosen item's :value or nil."
+  [title placeholder items]
+  (let [separator-kind (.. vscode -QuickPickItemKind -Separator)]
+    (.then (.showQuickPick (.-window vscode)
+                           (clj->js (map-indexed (fn [index {:keys [separator label description detail]}]
+                                                   (if separator
+                                                     {:label separator :kind separator-kind}
+                                                     {:label label :description (or description "") :detail detail :index index}))
+                                                 items))
+                           #js {:title title :placeHolder placeholder :matchOnDescription true})
+           (fn [^js chosen] (when chosen (:value (nth items (.-index chosen))))))))
+
+(defn choose-from
+  "Offers the items `items-task` resolves to, as `choose` offers items,
+  showing the picker busy until they arrive; resolves to the chosen
+  item's :value or nil."
+  [title placeholder items-task]
+  (let [separator-kind (.. vscode -QuickPickItemKind -Separator)
+        arrived (atom [])]
+    (.then (.showQuickPick (.-window vscode)
+                           (.then items-task
+                                  (fn [items]
+                                    (reset! arrived (vec items))
+                                    (clj->js (map-indexed (fn [index {:keys [separator label description detail]}]
+                                                            (if separator
+                                                              {:label separator :kind separator-kind}
+                                                              {:label label :description (or description "") :detail detail :index index}))
+                                                          items))))
+                           #js {:title title :placeHolder placeholder :matchOnDescription true})
+           (fn [^js chosen] (when chosen (:value (nth @arrived (.-index chosen))))))))
+
+(defn input-box
+  "Asks for one line of text, hidden when `password?`, resolving to it or
+  nil. `validate` says why a value cannot be taken, and `selection`
+  selects part of `value`."
+  [{:keys [title prompt placeholder value password? validate selection]}]
+  (.then (.showInputBox (.-window vscode)
+                        (clj->js (cond-> {:title title :prompt prompt :placeHolder (or placeholder "") :value (or value "")
+                                          :password (boolean password?) :ignoreFocusOut true}
+                                   selection (assoc :valueSelection selection)
+                                   validate (assoc :validateInput (fn [text] (or (validate text) js/undefined))))))
+         #(when (some? %) %)))
+
+(defn confirm
+  "Asks `question` in a modal dialog explained by `detail`, with one
+  `action` button; resolves to true when the action is chosen."
+  [question detail action]
+  (.then (.showWarningMessage (.-window vscode) question #js {:modal true :detail detail} action)
+         #(= action %)))
+
+(defn warning-message
+  "Shows a warning; resolves to the chosen button's label, or nil."
+  [text & choices]
+  (.then (.apply (.-showWarningMessage (.-window vscode)) (.-window vscode) (into-array (cons text choices)))
+         #(when % %)))
+
 (defn output-channel [channel-name]
   (.createOutputChannel (.-window vscode) channel-name))
 
 (defn append-line! [^js channel text]
   (.appendLine channel text))
 
+(defn show-channel!
+  "Shows an output channel without taking the keyboard from the editor."
+  [^js channel]
+  (.show channel true))
+
+;; Clipboard, terminals, and the status bar
+
+(defn write-clipboard!
+  "Puts `text` on the clipboard; resolves once it is there."
+  [text]
+  (.writeText (.. vscode -env -clipboard) text))
+
+(defn show-terminal!
+  "Shows `terminal` in VS Code's panel, leaving the focus where it is."
+  [^js terminal]
+  (.show terminal true))
+
+(defn run-in-terminal!
+  "Opens a terminal called `terminal-name` in `directory`, shows it, and
+  runs each of `command-lines` in turn."
+  [terminal-name directory command-lines]
+  (let [^js terminal (.createTerminal (.-window vscode) #js {:name terminal-name :cwd directory})]
+    (.show terminal)
+    (doseq [line command-lines]
+      (.sendText terminal line true))
+    terminal))
+
+(defn status-bar-item
+  "A status bar item on the right, hidden until shown; `priority` places
+  it among the others there."
+  [item-id item-name priority]
+  (let [^js item (.createStatusBarItem (.-window vscode) item-id (.. vscode -StatusBarAlignment -Right) priority)]
+    (set! (.-name item) item-name)
+    item))
+
+(defn show-status! [^js item {:keys [text tooltip command]}]
+  (set! (.-text item) text)
+  (set! (.-tooltip item) tooltip)
+  (set! (.-command item) command)
+  (.show item))
+
+(defn hide-status! [^js item]
+  (.hide item))
+
+;; Terminals
+
+(defn default-shell-name
+  "The name of the shell VS Code's terminals start, such as bash, or nil."
+  []
+  (some-> (.. vscode -env -shell) path/basename (string/replace #"(?i)\.exe$" "") not-empty))
+
+(defn create-terminal
+  "Opens a terminal called `terminal-name` in `directory`, leaving VS
+  Code's terminal panel as it is."
+  [terminal-name directory]
+  (.createTerminal (.-window vscode) #js {:name terminal-name :cwd directory}))
+
+(defn open-terminals []
+  (vec (array-seq (or (.. vscode -window -terminals) #js []))))
+
+(defn terminal-name [^js terminal]
+  (.-name terminal))
+
+(defn pseudo-terminal?
+  "True for a terminal an extension draws itself, such as Calva's output
+  terminal, with no shell behind it to run commands."
+  [^js terminal]
+  (some? (some-> terminal .-creationOptions .-pty)))
+
+(defn shell-integration-supported?
+  "True when this VS Code reports what runs in its terminals, which it
+  does from 1.93."
+  []
+  (boolean (.. vscode -window -onDidStartTerminalShellExecution)))
+
+(defn shell-integrated?
+  "True when VS Code's shell integration is active in `terminal`."
+  [^js terminal]
+  (some? (.-shellIntegration terminal)))
+
+(defn terminal-cwd
+  "The working directory shell integration reports for `terminal`, or nil."
+  [^js terminal]
+  (some-> terminal .-shellIntegration .-cwd .-fsPath))
+
+(defn execute-in-terminal!
+  "Runs `command` through `terminal`'s shell integration, returning the
+  execution."
+  [^js terminal command]
+  (.executeCommand (.-shellIntegration terminal) command))
+
+(defn send-to-terminal! [^js terminal text enter?]
+  (.sendText terminal text enter?))
+
+(defn dispose-terminal! [^js terminal]
+  (.dispose terminal))
+
+(defn execution-command
+  "The command line an execution runs, as the shell reported it."
+  [^js execution]
+  (some-> execution .-commandLine .-value))
+
+(defn read-execution!
+  "Calls `on-data` with each chunk of raw output `execution` writes, then
+  `on-end` once it writes no more."
+  [^js execution on-data on-end]
+  (let [^js stream (.read execution)
+        ^js iterator (.call (aget stream js/Symbol.asyncIterator) stream)]
+    (letfn [(pump []
+              (-> (.next iterator)
+                  (.then (fn [^js step]
+                           (if (.-done step)
+                             (on-end)
+                             (do (on-data (.-value step))
+                                 (pump)))))
+                  (.catch (fn [_error] (on-end)))))]
+      (pump))))
+
+(defn on-shell-execution-start!
+  "Calls `handler` with the terminal and the execution whenever a command
+  starts in a terminal with shell integration. Returns a disposable, or
+  nil when this VS Code cannot report it."
+  [handler]
+  (when (shell-integration-supported?)
+    (.onDidStartTerminalShellExecution (.-window vscode) (fn [^js event] (handler (.-terminal event) (.-execution event))))))
+
+(defn on-shell-execution-end!
+  "Calls `handler` with the terminal, the execution, and its exit code
+  whenever a command ends. Returns a disposable, or nil."
+  [handler]
+  (when (shell-integration-supported?)
+    (.onDidEndTerminalShellExecution (.-window vscode)
+                                     (fn [^js event] (handler (.-terminal event) (.-execution event) (.-exitCode event))))))
+
+(defn on-shell-integration-change!
+  "Calls `handler` with a terminal whose shell integration began or
+  changed. Returns a disposable, or nil."
+  [handler]
+  (when-let [subscribe (.. vscode -window -onDidChangeTerminalShellIntegration)]
+    (.call subscribe (.-window vscode) (fn [^js event] (handler (.-terminal event))))))
+
+(defn on-terminal-close! [handler]
+  (.onDidCloseTerminal (.-window vscode) handler))
+
+;; Secrets
+
+(defn secret [^js secrets secret-key]
+  (.then (.get secrets secret-key) #(when % %)))
+
+(defn store-secret!
+  "Stores `value` under `secret-key` in VS Code's secret storage, which
+  keeps it in the operating system's keychain."
+  [^js secrets secret-key value]
+  (.store secrets secret-key value))
+
+(defn delete-secret! [^js secrets secret-key]
+  (.delete secrets secret-key))
+
+;; VS Code's own agents
+
+(defn mcp-servers-supported?
+  "True when this VS Code lets extensions offer MCP servers to its agents,
+  which it does from 1.101."
+  []
+  (boolean (some-> vscode .-lm .-registerMcpServerDefinitionProvider)))
+
+(defn offer-mcp-server!
+  "Offers VS Code's agents an MCP server under `provider-id`, which
+  `describe` returns as {:label :url :headers :version}. Returns
+  {:disposable :changed!}, or nil when VS Code cannot take it."
+  [provider-id describe]
+  (when (mcp-servers-supported?)
+    (let [EventEmitter (.-EventEmitter vscode)
+          McpHttpServerDefinition (.-McpHttpServerDefinition vscode)
+          ^js emitter (EventEmitter.)
+          definitions (fn [_cancellation]
+                        (if-let [{:keys [label url headers version]} (describe)]
+                          #js [(McpHttpServerDefinition. label (.parse (.-Uri vscode) url) (clj->js headers) version)]
+                          #js []))
+          ^js registration (.registerMcpServerDefinitionProvider (.-lm vscode) provider-id
+                                                                 #js {:onDidChangeMcpServerDefinitions (.-event emitter)
+                                                                      :provideMcpServerDefinitions definitions
+                                                                      :resolveMcpServerDefinition (fn [definition _cancellation] definition)})]
+      {:disposable (disposable (fn []
+                                 (.dispose registration)
+                                 (.dispose emitter)))
+       :changed! #(.fire emitter)})))
+
 ;; Editors and documents
 
 (defn active-editor-view
-  "What the active editor shows, or nil: :path, :on-disk?, the one-based
-  :cursor-line and visible lines, and :view-column."
+  "What the active editor shows, its :path, :on-disk?, the one-based
+  :cursor-line and visible lines, and its :view-column, or nil."
   []
   (when-let [^js editor (.. vscode -window -activeTextEditor)]
     (let [^js document (.-document editor)
@@ -130,9 +367,7 @@
              (.revealRange editor selection (.. vscode -TextEditorRevealType -InCenter))
              editor))))
 
-(defn open-with!
-  "Opens `uri` with the editor registered for `view-type`."
-  [^js uri view-type view-column]
+(defn open-with! [^js uri view-type view-column]
   (execute-command "vscode.openWith" uri view-type #js {:viewColumn view-column :preview false}))
 
 (defn open-as-text!
@@ -152,9 +387,7 @@
 (defn document-dirty? [^js document]
   (.-isDirty document))
 
-(defn crlf-document?
-  "True when the document ends its lines with CRLF."
-  [^js document]
+(defn crlf-document? [^js document]
   (= (.-eol document) (.. vscode -EndOfLine -CRLF)))
 
 (defn- zero-based-range [[line column end-line end-column]]
@@ -177,9 +410,7 @@
     (.replace edit (.-uri document) (zero-based-range span) text)
     (.applyEdit (.-workspace vscode) edit)))
 
-(defn save-document!
-  "Saves a document; resolves to true when it saved."
-  [^js document]
+(defn save-document! [^js document]
   (.save document))
 
 (defn- apply-and-save! [^js edit ^js document]
@@ -214,10 +445,83 @@
 (defn on-document-save! [handler]
   (.onDidSaveTextDocument (.-workspace vscode) handler))
 
+(defn- edit-reason
+  "What an edit to a document did beyond changing its text, :undo or :redo
+  when it undid or redid an earlier edit, else nil."
+  [^js event]
+  (let [^js reasons (.-TextDocumentChangeReason vscode)
+        reason (.-reason event)]
+    (cond
+      (and reasons (some? reason) (= reason (.-Undo reasons))) :undo
+      (and reasons (some? reason) (= reason (.-Redo reasons))) :redo
+      :else nil)))
+
+(defn on-document-edit!
+  "Calls `handler` with each document on disk whose text changes and
+  {:reason :spans}, each span the one-based first and last line a change
+  covers in the new text."
+  [handler]
+  (.onDidChangeTextDocument (.-workspace vscode)
+                            (fn [^js event]
+                              (let [^js document (.-document event)
+                                    changes (array-seq (.-contentChanges event))]
+                                (when (and (seq changes) (on-disk? (.-uri document)))
+                                  (handler document
+                                           {:reason (edit-reason event)
+                                            :spans (mapv (fn [^js change]
+                                                           (let [first-line (inc (.. change -range -start -line))]
+                                                             [first-line (+ first-line (count (re-seq #"\n" (.-text change))))]))
+                                                         changes)}))))))
+
+(defn on-document-will-save!
+  "Calls `handler` with each document on disk VS Code is about to save,
+  before formatters and other save actions run."
+  [handler]
+  (.onWillSaveTextDocument (.-workspace vscode)
+                           (fn [^js event]
+                             (when (on-disk? (.. event -document -uri))
+                               (handler (.-document event))))))
+
+(defn on-document-open!
+  "Calls `handler` with each document on disk VS Code opens."
+  [handler]
+  (.onDidOpenTextDocument (.-workspace vscode)
+                          (fn [^js document]
+                            (when (on-disk? (.-uri document))
+                              (handler document)))))
+
+(defn on-document-close!
+  "Calls `handler` with each document on disk VS Code closes."
+  [handler]
+  (.onDidCloseTextDocument (.-workspace vscode)
+                           (fn [^js document]
+                             (when (on-disk? (.-uri document))
+                               (handler document)))))
+
+(defn open-documents
+  "The documents on disk VS Code holds open."
+  []
+  (filterv #(on-disk? (.-uri ^js %)) (array-seq (.. vscode -workspace -textDocuments))))
+
+(defn window-focused?
+  "True while this VS Code window has the keyboard."
+  []
+  (boolean (some-> (.. vscode -window -state) .-focused)))
+
+(defn active-caret-lines
+  "The lines, counted from zero, of both ends of every selection in the
+  active editor when it shows `document`, else nil."
+  [^js document]
+  (let [^js editor (.. vscode -window -activeTextEditor)]
+    (when (and editor (identical? document (.-document editor)))
+      (into []
+            (mapcat (fn [^js selection] [(.. selection -active -line) (.. selection -anchor -line)]))
+            (array-seq (or (.-selections editor) #js [(.-selection editor)]))))))
+
 ;; Theme and fonts
 
 (defn theme-kind-name
-  "The kind of the editor theme: :light, :dark, :high-contrast, or
+  "The kind of the editor theme, one of :light, :dark, :high-contrast, and
   :high-contrast-light."
   []
   (let [kind (.. vscode -window -activeColorTheme -kind)
@@ -277,9 +581,7 @@
 
 ;; Settings and stored state
 
-(defn setting
-  "Value of the setting `setting-key` in `section`, or `fallback`."
-  [section setting-key fallback]
+(defn setting [section setting-key fallback]
   (let [value (.get (.getConfiguration (.-workspace vscode) section) setting-key)]
     (if (nil? value) fallback value)))
 
@@ -290,8 +592,8 @@
   (some-> (setting section setting-key nil) js/JSON.stringify js/JSON.parse js->clj))
 
 (defn update-setting!
-  "Changes a setting where it is currently defined: in the workspace when
-  the workspace sets it, otherwise for the user."
+  "Changes a setting where it is currently defined, in the workspace when
+  the workspace sets it and otherwise for the user."
   [section setting-key value]
   (let [^js configuration (.getConfiguration (.-workspace vscode) section)
         ^js inspection (.inspect configuration setting-key)
@@ -315,9 +617,7 @@
     (some-> (.get memento memory-key) reader/read-string)
     (catch :default _error nil)))
 
-(defn remember!
-  "Stores `value` under `memory-key` in an extension memento."
-  [^js memento memory-key value]
+(defn remember! [^js memento memory-key value]
   (.update memento memory-key (pr-str value)))
 
 ;; Workspace folders and files
@@ -325,9 +625,7 @@
 (defn workspace-folder-paths []
   (mapv #(uri-path (.-uri ^js %)) (or (.. vscode -workspace -workspaceFolders) #js [])))
 
-(defn workspace-folder-path-of
-  "Path of the workspace folder holding `file-path`, or nil."
-  [file-path]
+(defn workspace-folder-path-of [file-path]
   (some-> (.getWorkspaceFolder (.-workspace vscode) (file-uri file-path)) .-uri .-fsPath))
 
 (defn find-files
@@ -412,6 +710,71 @@
   [handler]
   (.onDidChangeActiveTextEditor (.-window vscode) (fn [_] (handler))))
 
+(defn- editor-selection
+  "`editor`'s caret and selection for a file on disk, as {:path :text
+  :language-id :line :column :anchor-line :anchor-column}, zero-based, or
+  nil."
+  [^js editor]
+  (when editor
+    (let [^js document (.-document editor)
+          ^js selection (.-selection editor)]
+      (when (on-disk? (.-uri document))
+        {:path (.. document -uri -fsPath)
+         :text (.getText document)
+         :language-id (.-languageId document)
+         :line (.. selection -active -line)
+         :column (.. selection -active -character)
+         :anchor-line (.. selection -anchor -line)
+         :anchor-column (.. selection -anchor -character)}))))
+
+(defn active-editor-selection
+  "Where the active text editor's caret and selection are, as
+  editor-selection gives them, or nil."
+  []
+  (editor-selection (.. vscode -window -activeTextEditor)))
+
+(defn on-selection-change!
+  "Calls `handler` with {:path :line :column :anchor-line :anchor-column},
+  counted from zero, whenever the caret or the selection moves in an
+  editor showing a file on disk."
+  [handler]
+  (.onDidChangeTextEditorSelection (.-window vscode)
+                                   (fn [^js event]
+                                     (when-let [moved (editor-selection (.-textEditor event))]
+                                       (handler (dissoc moved :text :language-id))))))
+
+(defn on-visible-editors-change!
+  "Calls `handler` whenever the text editors in view change."
+  [handler]
+  (.onDidChangeVisibleTextEditors (.-window vscode) (fn [_] (handler))))
+
+(defn line-end-decoration-type
+  "A decoration type writing text after the end of a line, in the color
+  of the theme color `color-id`."
+  [color-id]
+  (.createTextEditorDecorationType (.-window vscode)
+                                   #js {:after #js {:color (let [ThemeColor (.-ThemeColor vscode)] (ThemeColor. color-id))
+                                                    :margin "0 0 0 1.5em"}
+                                        :rangeBehavior (.. vscode -DecorationRangeBehavior -ClosedClosed)}))
+
+(defn show-line-ends!
+  "Shows `entries`, each {:line :text} with the line counted from zero,
+  after the ends of their lines in every visible editor of the file at
+  `file-path`, with `decoration-type`, replacing what it showed there."
+  [file-path decoration-type entries]
+  (doseq [^js editor (array-seq (.. vscode -window -visibleTextEditors))
+          :let [^js document (.-document editor)]
+          :when (= file-path (.. document -uri -fsPath))]
+    (.setDecorations editor decoration-type
+                     (into-array
+                      (keep (fn [{:keys [line text]}]
+                              (when (< line (.-lineCount document))
+                                (let [line-end (.. document (lineAt line) -range -end)
+                                      Range (.-Range vscode)]
+                                  #js {:range (Range. line-end line-end)
+                                       :renderOptions #js {:after #js {:contentText text}}})))
+                            entries)))))
+
 ;; Git
 
 (defn git-api
@@ -424,9 +787,7 @@
         (.catch (fn [_error] nil)))
     (js/Promise.resolve nil)))
 
-(defn git-path
-  "Path of the git program the git extension found, or \"git\"."
-  [^js git]
+(defn git-path [^js git]
   (or (some-> git .-git .-path) "git"))
 
 (defn watch-head!
@@ -449,3 +810,85 @@
     (swap! subscriptions conj (.onDidOpenRepository git follow!))
     (disposable #(dispose! @subscriptions))))
 
+;; Formatting and problems
+
+(defn format-edits
+  "Resolves to the edits the editor's formatter makes to `document`, each
+  {:range :text} zero-based, for lines `start-line` to `end-line`, or the
+  whole document when they are nil."
+  [^js document start-line end-line]
+  (let [language-id (.-languageId document)
+        options #js {:tabSize (editor-setting language-id "tabSize" 2)
+                     :insertSpaces (editor-setting language-id "insertSpaces" true)}
+        requested (if start-line
+                    (let [last-line (min end-line (dec (.-lineCount document)))]
+                      (execute-command "vscode.executeFormatRangeProvider" (.-uri document)
+                                       (zero-based-range [start-line 0 last-line (.. document (lineAt last-line) -text -length)])
+                                       options))
+                    (execute-command "vscode.executeFormatDocumentProvider" (.-uri document) options))]
+    (.then requested
+           (fn [^js edits]
+             (mapv (fn [^js edit]
+                     (let [^js edit-range (.-range edit)]
+                       {:range [(.. edit-range -start -line) (.. edit-range -start -character)
+                                (.. edit-range -end -line) (.. edit-range -end -character)]
+                        :text (.-newText edit)}))
+                   (array-seq (or edits #js [])))))))
+
+(defn extension-active? [extension-id]
+  (boolean (some-> (.getExtension (.-extensions vscode) extension-id) .-isActive)))
+
+(defn calva-installed? []
+  (some? (.getExtension (.-extensions vscode) "betterthantomorrow.calva")))
+
+(defn calva-api
+  "Resolves to the first version of Calva's extension API, starting Calva
+  when it waits, or to nil without Calva."
+  []
+  (if-let [^js extension (.getExtension (.-extensions vscode) "betterthantomorrow.calva")]
+    (-> (.activate extension)
+        (.then (fn [^js exports] (some-> exports .-v1)))
+        (.catch (fn [_error] nil)))
+    (js/Promise.resolve nil)))
+
+(def ^:private severity-names
+  "Problem severities in the order of VS Code's DiagnosticSeverity."
+  [:error :warning :information :hint])
+
+(defn- problem-code
+  "A problem's code as text, which VS Code gives as a string, a number,
+  or an object holding the value with a link to its explanation."
+  [code]
+  (cond
+    (or (string? code) (number? code)) (str code)
+    (some? code) (some-> (.-value ^js code) str)
+    :else nil))
+
+(defn diagnostics
+  "Every problem VS Code knows of in files on disk, by path, each {:line
+  :column :end-line :end-column :severity :message :source :code},
+  zero-based."
+  []
+  (into {}
+        (keep (fn [^js entry]
+                (let [^js uri (aget entry 0)
+                      ^js found (aget entry 1)]
+                  (when (and (on-disk? uri) (pos? (.-length found)))
+                    [(.-fsPath uri)
+                     (mapv (fn [^js diagnostic]
+                             (let [^js span (.-range diagnostic)]
+                               {:line (.. span -start -line)
+                                :column (.. span -start -character)
+                                :end-line (.. span -end -line)
+                                :end-column (.. span -end -character)
+                                :severity (get severity-names (.-severity diagnostic) :information)
+                                :message (.-message diagnostic)
+                                :source (.-source diagnostic)
+                                :code (problem-code (.-code diagnostic))}))
+                           (array-seq found))]))))
+        (array-seq (.getDiagnostics (.-languages vscode)))))
+
+(defn on-diagnostics-change!
+  "Calls `handler` whenever the problems VS Code knows of change."
+  [handler]
+  (.onDidChangeDiagnostics (.-languages vscode) (fn [_event] (handler))))

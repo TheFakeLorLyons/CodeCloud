@@ -38,9 +38,7 @@
         (multiply-32 murmur-second)
         (shift-mix 16))))
 
-(defn unit-random
-  "A number in [0, 1) determined by `text`."
-  [text]
+(defn unit-random [text]
   (/ (stable-hash text) 4294967296))
 
 (defn- unit-ball-point
@@ -89,15 +87,11 @@
   #?(:clj (double-array length)
      :cljs (js/Float64Array. length)))
 
-(defn- zeroed-index-array
-  "Zero-filled array of integers."
-  [length]
+(defn- zeroed-index-array [length]
   #?(:clj (int-array length)
      :cljs (js/Int32Array. length)))
 
-(defn- index-array
-  "Array of the integer values in `values`."
-  [values]
+(defn- index-array [values]
   #?(:clj (int-array values)
      :cljs (let [result (js/Int32Array. (count values))]
              (doseq [[index value] (map-indexed vector values)]
@@ -169,9 +163,7 @@
 (defn- scaled-anchor [unit {:keys [center radius]}]
   {:center (mapv #(/ % unit) center) :radius (/ radius unit)})
 
-(defn- scaled-positions
-  "Positions from world units into layout units."
-  [positions unit]
+(defn- scaled-positions [positions unit]
   (into {} (map (fn [[id [x y z]]] [id [(/ x unit) (/ y unit) (/ z unit)]])) positions))
 
 (defn- group-indexes
@@ -180,10 +172,7 @@
   [nodes group-key]
   (zipmap (distinct (map #(or (group-key %) "") nodes)) (range)))
 
-(defn- write-triple!
-  "Writes `x`, `y`, and `z` into the three slots of `array` for item
-  `index`."
-  [array index x y z]
+(defn- write-triple! [array index x y z]
   (let [offset (* 3 index)]
     (aset array offset (double x))
     (aset array (+ 1 offset) (double y))
@@ -210,8 +199,8 @@
                         valid-links)}))
 
 (defn- starting-position
-  "Where a node starts: its earlier spot, beside its neighbors when new to
-  a warm start, in its anchor, or near its folder's hashed point."
+  "Where a node starts, at its earlier spot, beside its neighbors when new
+  to a warm start, in its anchor, or near its folder's hashed point."
   [{:keys [id group parent-group]} scaled-radius anchor {:keys [previous neighbors warm? tuning node-count]}]
   (or (get previous id)
       (when warm? (warm-position id #(get neighbors % []) previous scaled-radius))
@@ -290,10 +279,7 @@
     (aset forces (+ 1 offset) (+ (aget forces (+ 1 offset)) y))
     (aset forces (+ 2 offset) (+ (aget forces (+ 2 offset)) z))))
 
-(defn- pair-repulsion
-  "Repulsion between two nodes, weaker within a group and stronger across
-  groups."
-  [group-of first-index second-index repulsion same-group-share other-group-share]
+(defn- pair-repulsion [group-of first-index second-index repulsion same-group-share other-group-share]
   (* repulsion (if (= (aget group-of first-index) (aget group-of second-index))
                  same-group-share
                  other-group-share)))
@@ -498,9 +484,7 @@
         (aset forces (+ 1 offset) 0.0)
         (aset forces (+ 2 offset) 0.0)))))
 
-(defn moving?
-  "True until the simulation has cooled to rest."
-  [simulation]
+(defn moving? [simulation]
   (> @(:alpha simulation) (:alpha-minimum (:tuning simulation))))
 
 (defn step!

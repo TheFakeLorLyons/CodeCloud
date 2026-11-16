@@ -11,10 +11,7 @@
 
 (def ^:private lines-per-texture-row 16)
 
-(defn- write-texel!
-  "Writes one RGBA texel of the table, capping the first two values at a
-  byte."
-  [^js data index red green blue]
+(defn- write-texel! [^js data index red green blue]
   (let [byte-cap 255]
     (aset data index (min byte-cap red))
     (aset data (+ index 1) (min byte-cap green))
@@ -57,9 +54,7 @@
       (write-line-runs! data width line-index (highlight/line-runs tokens code-characters runs-per-line)))
     {:texture (data-texture data width height) :size [width height]}))
 
-(defn release!
-  "Frees a table's texture."
-  [{:keys [^js texture]}]
+(defn release! [{:keys [^js texture]}]
   (when texture (.dispose texture)))
 
 (defn empty-texture

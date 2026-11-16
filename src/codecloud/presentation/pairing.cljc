@@ -78,8 +78,8 @@
   4.0)
 
 (def ^:private row-order
-  "Where a file stands in its row: declarations first, inline definitions
-  next, then the source."
+  "Where a file stands in its row, declarations first, inline definitions
+  next, and the source last."
   {:header 0 :interface 0 :inline 1 :source 2 :implementation 2})
 
 (defn row-geometry
@@ -112,10 +112,8 @@
 
 (defn paired
   "`bases` with each page whose companion shows in the same folder set in
-  a row with it. Every page of a row gains :pair-root, the companion's id,
-  and :pair-shift, its place in the row, and the root gains :pair-members
-  in row order and :row-corner. A header in another folder, as under
-  include/, stays in its own folder's cloud."
+  a row with it, marked with :pair-root and :pair-shift. A header in
+  another folder stays in its own folder's cloud."
   [bases]
   (let [root-of (fn [[id base]]
                   (let [root (companion base)
@@ -154,7 +152,7 @@
              visuals))
 
 (defn layout-visuals
-  "The visuals the layout places: each row of paired pages as its root,
+  "The visuals the layout places, each row of paired pages as its root,
   claiming the room of the whole row as its pages are sized now."
   [visuals]
   (persistent!

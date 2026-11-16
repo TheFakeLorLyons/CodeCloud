@@ -1,7 +1,7 @@
 (ns codecloud.render.navigation
-  "Camera controls: drag orbits, right- or shift-drag pans, scroll zooms
-  toward the pointer, and framing flies to the cloud or a page. Drags
-  keep some momentum and flights ease in and out."
+  "Camera controls, by which a drag orbits, a right or Shift drag pans,
+  scrolling zooms toward the pointer, and framing flies to the cloud or a
+  page. Drags keep some momentum and flights ease in and out."
   (:require ["three" :as three]
             [codecloud.collections :as collections]))
 
@@ -109,9 +109,7 @@
 (defn flying? [{:keys [flight]}]
   (some? @flight))
 
-(defn update!
-  "Advances momentum and flights by `elapsed` seconds and places the camera."
-  [{:keys [^js camera ^js target ^js spherical momentum flight]} elapsed]
+(defn update! [{:keys [^js camera ^js target ^js spherical momentum flight]} elapsed]
   (when-let [{:keys [from-target to-target from-distance to-distance duration] :as current-flight} @flight]
     (let [progress (min 1 (/ (+ (:elapsed current-flight) elapsed) duration))
           eased (ease-in-out progress)]

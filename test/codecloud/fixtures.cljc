@@ -2,13 +2,21 @@
   "Reads the small repositories under test-resources, the same way on the
   JVM and on Node."
   (:require [clojure.string :as string]
+            [codecloud.languages :as languages]
             [codecloud.model.config :as config]
+            [codecloud.model.snapshot :as snapshot]
             #?(:clj [clojure.java.io :as io])))
 
 (def polyglot-root
   "A repository in several languages, with files every adapter reads and
   files CodeCloud should leave out."
   "test-resources/polyglot")
+
+(def orchard-root
+  "A small Clojure project whose namespaces require one another through
+  aliases, with a cycle, a file that does not parse, ClojureScript, a
+  .cljc file, tests, and a dev namespace."
+  "test-resources/orchard")
 
 (defn- relative-path [root full-path]
   (string/replace (subs full-path (inc (count root))) "\\" "/"))
@@ -64,3 +72,15 @@
   [path]
   (fn [grammar _text _query]
     (get-in @recorded-matches [path grammar] [])))
+
+(defn snapshot-of
+  "The working-tree snapshot of the repository at `root`, read with the
+  default configuration and, for C and C++, the recorded tree-sitter
+  matches."
+  [root]
+  (snapshot/build-snapshot
+   (keep (fn [[path text]]
+           (when (config/source-path? config/default-config path)
+             (languages/analyze-file path text {:parse-tree (recorded-parse-tree (str root "/" path))})))
+         (file-texts root))
+   {:id :working-tree :label "Working tree" :time 0}))

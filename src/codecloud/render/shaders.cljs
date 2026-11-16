@@ -1,5 +1,5 @@
 (ns codecloud.render.shaders
-  "GLSL for the sky, the folder clouds, the namespace pages, and the
+  "GLSL for the backdrops, the folder clouds, the namespace pages, and the
   dependency edges. Colors arrive as gamma-encoded sRGB vectors computed
   by the palette, and the shaders write them out unconverted.")
 
@@ -43,7 +43,9 @@
      return total / 0.875;
    }")
 
-(def sky-vertex
+(def backdrop-vertex
+  "A quad over the whole screen, behind everything, for the backdrops.
+  Each looks up what it shows along the view direction of its pixel."
   "varying vec2 screenPosition;
    void main() {
      screenPosition = position.xy;
@@ -51,10 +53,9 @@
    }")
 
 (def sky-fragment
-  "The sky behind the cloud, looked up along each pixel's view direction,
-  with cumulus above the horizon, a sea of cloud below it, the sun by day,
-  and the moon, stars, and an aurora by night. Birds fly as flapping
-  strokes, and an airplane draws a contrail by day and blinks by night."
+  "The sky looked up along each pixel's view direction, with cumulus above
+  the horizon, a sea of cloud below, the sun by day, and moon, stars, and
+  aurora by night, crossed by birds and airplanes."
   (str
    "uniform mat4 inverseProjection;
     uniform mat4 cameraWorld;
@@ -219,11 +220,238 @@
       gl_FragColor = vec4(color, 1.0);
     }"))
 
+(def plain-fragment
+  "The plain backdrop, a gradient from horizon to zenith in the sky's day
+  or night colors."
+  "uniform mat4 inverseProjection;
+   uniform mat4 cameraWorld;
+   uniform float night;
+   uniform vec3 dayZenith;
+   uniform vec3 dayHorizon;
+   uniform vec3 nightZenith;
+   uniform vec3 nightHorizon;
+   varying vec2 screenPosition;
+   void main() {
+     vec4 viewRay = inverseProjection * vec4(screenPosition, 1.0, 1.0);
+     vec3 direction = normalize((cameraWorld * vec4(viewRay.xyz / viewRay.w, 0.0)).xyz);
+     float rise = smoothstep(-0.6, 0.9, direction.y);
+     vec3 dayColor = mix(dayHorizon, dayZenith, rise);
+     vec3 nightColor = mix(nightHorizon, nightZenith, rise);
+     gl_FragColor = vec4(mix(dayColor, nightColor, night), 1.0);
+   }")
+
+(def room-fragment
+  "A room or a maze of rooms around an eye 1.5 meters above the floor,
+  walked cell by cell until a wall stops the view. Patterns follow
+  codecloud.presentation.environments/patterns and even out where finer
+  than a pixel."
+  (str
+   "uniform mat4 inverseProjection;
+    uniform mat4 cameraWorld;
+    uniform float time;
+    uniform float motion;
+    uniform float pixelAngle;
+    uniform float maze;
+    uniform vec3 wallColor;
+    uniform vec3 wallAccent;
+    uniform float wallPattern;
+    uniform float wallScale;
+    uniform vec3 floorColor;
+    uniform vec3 floorAccent;
+    uniform float floorPattern;
+    uniform float floorScale;
+    uniform vec3 ceilingColor;
+    uniform vec3 ceilingAccent;
+    uniform float ceilingPattern;
+    uniform float ceilingScale;
+    uniform vec3 lampColor;
+    uniform float lampsOn;
+    uniform vec3 hazeColor;
+    varying vec2 screenPosition;
+   " noise-functions "
+    const float floorBelow = 1.5;
+    const float ceilingAbove = 1.2;
+    const float roomHeight = 2.7;
+    const float cellSize = 4.0;
+    const float roomHalf = 4.0;
+    const float lampSpacing = 2.4;
+
+    float evened(float blur) {
+      return smoothstep(0.2, 0.6, blur);
+    }
+
+    float lines(float coord, float width, float blur) {
+      float fromLine = abs(fract(coord + 0.5) - 0.5);
+      float sharp = 1.0 - smoothstep(width * 0.5 - blur, width * 0.5 + blur, fromLine);
+      return mix(sharp, width, evened(blur));
+    }
+
+    float bands(float coord, float blur) {
+      float sharp = smoothstep(0.25 - blur, 0.25 + blur, abs(fract(coord) - 0.5));
+      return mix(sharp, 0.5, evened(blur));
+    }
+
+    vec3 surface(float pattern, vec2 uv, vec3 base, vec3 accent, float scale, float footprint) {
+      if (pattern < 0.5) {
+        return base;
+      }
+      if (pattern < 1.5) {
+        float period = 0.3 * scale;
+        return mix(base, accent, bands(uv.x / period, footprint / period));
+      }
+      if (pattern < 2.5) {
+        float period = 0.5 * scale;
+        float blur = footprint / period;
+        return mix(base, accent, max(lines(uv.x / period, 0.05, blur), lines(uv.y / period, 0.05, blur)));
+      }
+      if (pattern < 3.5) {
+        float period = 0.6 * scale;
+        float blur = footprint / period;
+        float shade = (hash12(floor(uv / period)) - 0.5) * 0.07 * (1.0 - evened(blur));
+        float grout = max(lines(uv.x / period, 0.06, blur), lines(uv.y / period, 0.06, blur));
+        return mix(base * (1.0 + shade), accent, grout);
+      }
+      if (pattern < 4.5) {
+        float period = 0.5 * scale;
+        vec2 cell = floor(uv / period);
+        float checks = mix(mod(cell.x + cell.y, 2.0), 0.5, evened(footprint / period));
+        return mix(base, accent, checks);
+      }
+      if (pattern < 5.5) {
+        float period = 0.3 * scale;
+        float blur = footprint / period;
+        float radius = 0.22;
+        float spot = 1.0 - smoothstep(radius - blur, radius + blur, length(fract(uv / period) - 0.5));
+        return mix(base, accent, mix(spot, 3.14159 * radius * radius, evened(blur)));
+      }
+      if (pattern < 6.5) {
+        float fine = valueNoise(uv * 38.0 / scale) - 0.5;
+        float fineShare = 1.0 - smoothstep(0.008, 0.03, footprint / scale);
+        float damp = smoothstep(0.55, 0.8, softFbm(uv * 0.35 / scale + 3.7));
+        vec3 woven = mix(base, accent, 0.35 + fine * 0.5 * fineShare);
+        return mix(woven, accent * 0.82, damp * 0.6);
+      }
+      float period = 0.18 * scale;
+      float blur = footprint / period;
+      float stripes = max(lines(uv.x / period, 0.05, blur), lines(uv.x / period + 0.16, 0.05, blur)) * 0.8;
+      vec2 motif = vec2(fract(uv.x / period + 0.08) - 0.5, fract(uv.y / (period * 1.6)) - 0.5);
+      float diamond = 1.0 - smoothstep(0.16 - blur, 0.16 + blur, abs(motif.x) * 1.6 + abs(motif.y));
+      diamond = mix(diamond, 0.05, evened(blur));
+      float stain = smoothstep(0.55, 0.85, softFbm(vec2(uv.x * 0.4, uv.y * 1.3) / scale + 13.0))
+                    * (1.0 - smoothstep(0.2, 1.4, uv.y));
+      vec3 papered = mix(base, accent, max(stripes, diamond * 0.55));
+      return mix(papered, accent * 0.75, stain * 0.5);
+    }
+
+    float wallOnEdge(vec2 edge, float across) {
+      bool aroundEye = across < 0.5
+                       ? (edge.y == 0.0 && (edge.x == 0.0 || edge.x == 1.0))
+                       : (edge.x == 0.0 && (edge.y == 0.0 || edge.y == 1.0));
+      if (aroundEye) {
+        return 0.0;
+      }
+      return step(hash12(edge * 1.37 + vec2(across * 19.1, across * 7.3)), 0.42);
+    }
+
+    void main() {
+      vec4 viewRay = inverseProjection * vec4(screenPosition, 1.0, 1.0);
+      vec3 direction = normalize((cameraWorld * vec4(viewRay.xyz / viewRay.w, 0.0)).xyz);
+      float reach = 400.0;
+      float hitDistance = reach;
+      float kind = 4.0;
+      if (direction.y > 0.0001) {
+        hitDistance = ceilingAbove / direction.y;
+        kind = 1.0;
+      } else if (direction.y < -0.0001) {
+        hitDistance = floorBelow / -direction.y;
+        kind = 0.0;
+      }
+      vec2 across = direction.xz;
+      vec2 safeAcross = max(abs(across), vec2(0.00001));
+      vec3 eye = vec3(0.0);
+      if (maze < 0.5) {
+        vec2 toWall = roomHalf / safeAcross;
+        if (toWall.x < hitDistance && toWall.x <= toWall.y) {
+          hitDistance = toWall.x;
+          kind = 2.0;
+        } else if (toWall.y < hitDistance) {
+          hitDistance = toWall.y;
+          kind = 3.0;
+        }
+      } else {
+        eye = vec3(0.5 * cellSize, 0.0, 0.5 * cellSize);
+        vec2 cell = vec2(0.0);
+        vec2 stepSign = vec2(across.x >= 0.0 ? 1.0 : -1.0, across.y >= 0.0 ? 1.0 : -1.0);
+        vec2 crossing = cellSize / safeAcross;
+        vec2 nextCrossing = 0.5 * cellSize / safeAcross;
+        for (int walk = 0; walk < 28; walk++) {
+          if (min(nextCrossing.x, nextCrossing.y) >= hitDistance) {
+            break;
+          }
+          if (nextCrossing.x < nextCrossing.y) {
+            if (wallOnEdge(vec2(cell.x + max(stepSign.x, 0.0), cell.y), 0.0) > 0.5) {
+              hitDistance = nextCrossing.x;
+              kind = 2.0;
+              break;
+            }
+            cell.x += stepSign.x;
+            nextCrossing.x += crossing.x;
+          } else {
+            if (wallOnEdge(vec2(cell.x, cell.y + max(stepSign.y, 0.0)), 1.0) > 0.5) {
+              hitDistance = nextCrossing.y;
+              kind = 3.0;
+              break;
+            }
+            cell.y += stepSign.y;
+            nextCrossing.y += crossing.y;
+          }
+        }
+      }
+
+      vec3 hit = eye + direction * hitDistance;
+      float height = hit.y + floorBelow;
+      vec2 lampOffset = mod(hit.xz, lampSpacing) - 0.5 * lampSpacing;
+      vec2 lampCell = floor(hit.xz / lampSpacing);
+      float flicker = 1.0 - 0.55 * motion * step(0.985, hash12(lampCell + floor(time * 9.0)));
+      float pool = exp(-dot(lampOffset, lampOffset) * 0.35) * lampsOn * flicker;
+      vec3 color;
+      float light;
+      if (kind < 0.5) {
+        float footprint = hitDistance * pixelAngle / max(-direction.y, 0.08);
+        color = surface(floorPattern, hit.xz, floorColor, floorAccent, floorScale, footprint);
+        light = 0.6 + 0.42 * pool;
+      } else if (kind < 1.5) {
+        float footprint = hitDistance * pixelAngle / max(direction.y, 0.08);
+        color = surface(ceilingPattern, hit.xz, ceilingColor, ceilingAccent, ceilingScale, footprint);
+        vec2 panel = abs(lampOffset) / vec2(0.6, 0.3);
+        float panelEdge = max(panel.x, panel.y);
+        float inPanel = 1.0 - smoothstep(0.96, 1.04, panelEdge);
+        light = 0.74 + 0.16 * pool;
+        color = mix(color * light, lampColor * (1.08 * flicker), inPanel * lampsOn);
+        color += lampColor * 0.12 * exp(-max(panelEdge - 1.0, 0.0) * 2.5) * lampsOn * flicker * (1.0 - inPanel);
+        light = 1.0;
+      } else if (kind < 3.5) {
+        float facing = kind < 2.5 ? abs(direction.x) : abs(direction.z);
+        float footprint = hitDistance * pixelAngle / max(facing, 0.08);
+        vec2 uv = vec2(kind < 2.5 ? hit.z : hit.x, height);
+        color = surface(wallPattern, uv, wallColor, wallAccent, wallScale, footprint);
+        float baseboard = 1.0 - smoothstep(0.09, 0.1, height);
+        color = mix(color, wallAccent * 0.7, baseboard * 0.65);
+        float corners = (0.76 + 0.24 * smoothstep(0.0, 0.35, height))
+                        * (0.84 + 0.16 * smoothstep(0.0, 0.3, roomHeight - height));
+        light = (0.8 + 0.3 * smoothstep(0.0, roomHeight, height) + 0.2 * pool) * corners;
+      } else {
+        color = hazeColor;
+        light = 1.0;
+      }
+      float haze = 1.0 - exp(-hitDistance * 0.045);
+      gl_FragColor = vec4(mix(color * light, hazeColor, haze), 1.0);
+    }"))
+
 (def folder-puff-vertex
-  "Puffs of every folder cloud in one mesh, each a quad facing the camera.
-  A puff fades once it would cover much of the screen, so flying into a
-  folder parts its cloud, and its height within the cloud, from -1 at the
-  base to 1 at the top, lets the cloud be lit as one body."
+  "Every folder cloud's puffs as camera-facing quads. A puff fades once it
+  would cover much of the screen, so flying into a folder parts its
+  cloud."
   "attribute vec3 puffCenter;
    attribute vec2 corner;
    attribute float puffSize;
@@ -260,6 +488,7 @@
   (str
    "uniform float time;
     uniform float motion;
+    uniform float plain;
     varying vec2 cornerPosition;
     varying float seed;
     varying float alpha;
@@ -270,6 +499,13 @@
     void main() {
       float distanceFromCenter = length(cornerPosition);
       if (distanceFromCenter > 1.0 || alpha < 0.002) discard;
+      // A plain folder is a flat disc, lit from above, with no billows to compute.
+      if (plain > 0.5) {
+        float disc = 1.0 - smoothstep(0.8, 1.0, distanceFromCenter);
+        float discLight = clamp(0.6 + 0.4 * cornerPosition.y, 0.0, 1.0);
+        gl_FragColor = vec4(mix(shadeColor, lightColor, discLight), disc * alpha);
+        return;
+      }
       float billow = softFbm(cornerPosition * 2.1 + vec2(seed * 7.3, time * 0.018 * motion));
       float edge = distanceFromCenter + 0.32 * (billow - 0.5);
       float body = 1.0 - smoothstep(0.62, 0.86, edge);
@@ -293,10 +529,9 @@
    }")
 
 (def page-fragment
-  "Draws a page's glass as a rounded panel with an accent edge and a name
-  band, and the shape of its code from the minimap table. Far away the
-  code shows as bars and closer as colored words, and the runs fade out
-  once text tiles take over."
+  "A page's glass, accent edge, and name band, with its code drawn from
+  the minimap as bars far away and colored words closer, fading once text
+  tiles take over."
   "uniform vec2 size;
    uniform vec3 panelColor;
    uniform vec3 accentColor;

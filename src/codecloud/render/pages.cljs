@@ -1,6 +1,7 @@
 (ns codecloud.render.pages
-  "Pages as three.js objects facing the camera: a glass body whose shader
-  draws a minimap of the code, and real text once it can be read."
+  "Pages as three.js objects facing the camera, each a glass body whose
+  shader draws a minimap of the code, carrying real text once it can be
+  read."
   (:require ["three" :as three]
             [codecloud.languages.catalog :as catalog]
             [codecloud.presentation.code-colors :as code-colors]
@@ -13,10 +14,9 @@
             [codecloud.render.lru :as lru]
             [codecloud.render.minimap :as minimap]
             [codecloud.render.page-text :as page-text]
+            [codecloud.render.planes :as planes]
             [codecloud.render.shaders :as shaders]
             [codecloud.render.text :as text]))
-
-(defonce ^:private unit-plane (three/PlaneGeometry. 1 1))
 
 (defn create-layer
   "Every page by namespace id, with highlighted lines cached for the pages
@@ -35,10 +35,7 @@
 
 (defn panel-lines
   "Every line a page shows as {:tokens :number :bracket-depth :family},
-  with an unnumbered comment naming each file of a page of several, the
-  depth being the brackets open where the line starts and the family the
-  file's language family. `tokens-of` gives a file's token lines, by
-  default by reading its :text."
+  with an unnumbered comment naming each file of a page of several."
   ([files] (panel-lines files (fn [{:keys [text language]}]
                                 (text/tokenize-source (or language :clojure) (or text "")))))
   ([files tokens-of]
@@ -58,8 +55,8 @@
            files))))
 
 (defn- highlighted-lines
-  "Highlighted panel lines of a source: those it carries, as a page being
-  edited does, or else lines cached by its key."
+  "Highlighted panel lines of a source, those it carries, as a page being
+  edited does, or else those cached by its key."
   [{:keys [highlighted]} {:keys [source-key files lines]}]
   (let [capacity 48]
     (or lines
@@ -68,8 +65,7 @@
 
 (defn- with-minimap
   "The page with a minimap of its source, rebuilt when the source or shape
-  changes. The page owns the table and frees the one it replaces. While
-  a page's edited text shows, its minimap waits, since typing would
+  changes. While edited text shows, the minimap waits, since typing would
   rebuild it at every key."
   [page-object source layer]
   (let [{:keys [line-count code-characters]} (get-in page-object [:visual :geometry])
@@ -121,7 +117,7 @@
 
 (defn- create-page [id visual shared]
   (let [^js group (three/Object3D.)
-        ^js body (three/Mesh. unit-plane (page-material shared))
+        ^js body (three/Mesh. planes/unit-plane (page-material shared))
         ^js overlay (three/Object3D.)]
     (set! (.-renderOrder body) 2)
     (set! (.-frustumCulled body) false)
@@ -150,8 +146,8 @@
   (.dispose ^js (.-material ^js (:body page-object))))
 
 (defn sync-pages!
-  "Matches the layer to `visuals`: new pages fade in, missing ones fade
-  out, and recolored ones take their new colors."
+  "Matches the layer to `visuals`, fading new pages in and missing ones
+  out, and giving recolored ones their new colors."
   [{:keys [root pages shared]} visuals]
   (let [updated (reduce-kv (fn [by-id id visual]
                              (if-let [existing (get by-id id)]
@@ -172,9 +168,7 @@
 
 ;; Measuring pages each frame
 
-(defn- approach
-  "`current` eased toward `target` at `rate` over `elapsed` seconds."
-  [current target rate elapsed]
+(defn- approach [current target rate elapsed]
   (+ current (* (- target current) (- 1 (js/Math.exp (- (* rate elapsed)))))))
 
 (defn- approach-vector [current target rate elapsed]
@@ -216,32 +210,28 @@
 
 (defn- grown-shift
   "Page-local [x y] that keeps a page's top left corner where it was
-  before an edit reshaped it: half of its growth right and down."
+  before an edit reshaped it, half of its growth right and down."
   [{:keys [geometry base-size]}]
   (if-let [[base-width base-height] base-size]
     [(* 0.5 (- (:width geometry) base-width)) (* -0.5 (- (:height geometry) base-height))]
     [0 0]))
 
 (defn- page-shift
-  "Page-local [x y] from a page's layout anchor to its center: its place
+  "Page-local [x y] from a page's layout anchor to its center, its place
   in a row of paired pages, which already holds an edited page's corner,
   or else the shift holding the corner while an edit reshapes the page."
   [visual]
   (or (:pair-shift visual) (grown-shift visual)))
 
-(defn- local-to-world
-  "World vector of page-local [x y], whose axes follow the camera."
-  [[local-x local-y] ^js right ^js up]
+(defn- local-to-world [[local-x local-y] ^js right ^js up]
   [(+ (* local-x (.-x right)) (* local-y (.-x up)))
    (+ (* local-x (.-y right)) (* local-y (.-y up)))
    (+ (* local-x (.-z right)) (* local-y (.-z up)))])
 
 (defn- measure-page
-  "First pass of a frame: eases the page's fade and position, places it,
-  and measures it on screen. A carried page follows the pointer exactly.
-  A page reshaped by an edit keeps its top left corner in place, and once
-  the reshaping ends, or the page joins or leaves a row, it eases to its
-  new place instead of jumping."
+  "The first pass of a frame, easing the page's fade and position, placing
+  it, and measuring it on screen. A page reshaped by an edit keeps its
+  top left corner until the reshaping ends."
   [page-object {:keys [^js camera ^js forward ^js right ^js up positions offset-of carried-id elapsed motion viewport
                        field-of-view display-mode]}]
   (let [{:keys [id leaving? visual]} page-object
@@ -327,8 +317,8 @@
   (set! (.-value (.-codeCharacters uniforms)) code-characters))
 
 (defn- set-look-uniforms!
-  "Shader values that change each frame: size, colors, opacity, minimap,
-  hover, a cycle's pulse, and the names-only pill."
+  "Sets the shader values that change each frame, the size, colors,
+  opacity, minimap, hover, a cycle's pulse, and the names-only pill."
   [^js uniforms {:keys [id visual minimap text-share]} {:keys [width height]} {:keys [panel accent opacity pill]}
    {:keys [time motion hovered-id]}]
   (let [pulse-rate 2.4]
@@ -354,8 +344,8 @@
     (set! (.-value (.-borderPixels uniforms)) (if (:parse-error? visual) 3.0 1.5))))
 
 (defn- apply-page!
-  "Second pass of a frame: decides what the page shows at its size,
-  builds that while time allows, and draws it."
+  "The second pass of a frame, which decides what the page shows at its
+  size, builds that while time allows, and draws it."
   [page-object {:keys [ink display-mode source-of wanted-sources] :as frame} layer]
   (let [{:keys [id visual pixels-per-unit on-screen? colors]} page-object
         geometry (:geometry visual)
@@ -457,9 +447,7 @@
 
 ;; Questions about pages
 
-(defn page-of
-  "The page object for a namespace id, or nil."
-  [{:keys [pages]} id]
+(defn page-of [{:keys [pages]} id]
   (get @pages id))
 
 (defn all-pages [{:keys [pages]}]

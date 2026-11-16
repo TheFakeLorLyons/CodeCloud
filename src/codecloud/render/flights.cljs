@@ -14,9 +14,7 @@
   [app id]
   (swap! (:frame app) assoc :examined-id id))
 
-(defn- shifted
-  "`point` moved `distance` along the Vector3 `direction`."
-  [[x y z] ^js direction distance]
+(defn- shifted [[x y z] ^js direction distance]
   [(+ x (* distance (.-x direction)))
    (+ y (* distance (.-y direction)))
    (+ z (* distance (.-z direction)))])
@@ -35,45 +33,100 @@
                           distance
                           duration))))
 
+(declare offset-function)
+
 (defn page-center
   "Where a page is drawn now, or where it belongs."
   [app id]
   (or (:position (pages/page-of (:page-layer app) id))
       (placement/target-of app id)))
 
+(defn- settled-center
+  "Where page `id` comes to rest, where it belongs, offset as it is lifted
+  or was moved by hand, or where it is drawn when it has no place."
+  [app id]
+  (if-let [home (placement/target-of app id)]
+    (mapv + home ((offset-function app) id home))
+    (page-center app id)))
+
+(defn- point-on-page
+  "World position of page-local point [x y] on a page centered at
+  `center`. Pages face the camera, so local axes follow the camera's
+  right and up."
+  [app [x y z] [local-x local-y]]
+  (let [{:keys [right up]} (camera/basis app)]
+    [(+ x (* local-x (.-x right)) (* local-y (.-x up)))
+     (+ y (* local-x (.-y right)) (* local-y (.-y up)))
+     (+ z (* local-x (.-z right)) (* local-y (.-z up)))]))
+
 (defn page-point
-  "World position of page-local point [x y] on the page `id`. Pages face
-  the camera, so local axes follow the camera's right and up."
-  [app id [local-x local-y]]
-  (when-let [[x y z] (page-center app id)]
-    (let [{:keys [right up]} (camera/basis app)]
-      [(+ x (* local-x (.-x right)) (* local-y (.-x up)))
-       (+ y (* local-x (.-y right)) (* local-y (.-y up)))
-       (+ z (* local-x (.-z right)) (* local-y (.-z up)))])))
+  "World position of page-local point [x y] on the page `id`, where the
+  page is drawn now."
+  [app id local-point]
+  (when-let [center (page-center app id)]
+    (point-on-page app center local-point)))
 
 (defn fly-to-page!
-  "Flies to a page until it fills the open part of the screen, stopping
-  short of making its code larger than the editor's."
+  "Flies to a page until it fills the part of the screen that no side pane
+  covers, centered there, stopping short of making its code larger than
+  the editor's."
   [app id]
   (when-let [{:keys [geometry]} (get-in @(:frame app) [:visuals id])]
     (when-let [position (placement/target-of app id)]
-      (examine! app id)
-      (navigation/fly-to! (:controller app) position
-                          (camera/distance-for-pixels-per-unit
-                           app (min (camera/fitting-pixels-per-unit app (:width geometry) (:height geometry))
-                                    (camera/reading-pixels app)))
-                          1.0))))
+      (let [distance (camera/distance-for-pixels-per-unit
+                      app (min (camera/open-fitting-pixels-per-unit app (:width geometry) (:height geometry))
+                               (camera/reading-pixels app)))
+            {:keys [right]} (camera/basis app)]
+        (examine! app id)
+        (navigation/fly-to! (:controller app) (shifted position right (camera/panel-shift app distance)) distance 1.0)))))
+
+(defn- flown-to-line!
+  "Starts the flight fly-to-line! describes, returning true, or returns
+  false when the page has no place yet."
+  [app {:keys [namespace-id path line]} reading-share duration]
+  (let [page-object (pages/page-of (:page-layer app) namespace-id)
+        center (when page-object (settled-center app namespace-id))]
+    (if-not center
+      false
+      (let [[line-x line-y] (pages/line-local-point page-object path line)
+            {:keys [code-characters character-width]} (:geometry (:visual page-object))
+            pixels-per-unit (* reading-share (camera/reading-pixels app))
+            ;; The start of the line keeps this many pixels from the
+            ;; left of the uncovered view, and the code is centered there
+            ;; when it fits.
+            margin-pixels 56
+            reach (max 0 (/ (- (* 0.5 (camera/open-width app)) margin-pixels) pixels-per-unit))
+            reading-x (+ line-x (min reach (* 0.5 code-characters character-width)))
+            point (point-on-page app center [reading-x line-y])
+            distance (camera/distance-for-pixels-per-unit app pixels-per-unit)
+            {:keys [right up]} (camera/basis app)]
+        (examine! app namespace-id)
+        (navigation/fly-to! (:controller app)
+                            (-> point
+                                (shifted right (camera/panel-shift app distance))
+                                (shifted up (- (camera/band-shift app distance))))
+                            distance duration)
+        true))))
 
 (defn fly-to-line!
   "Flies to a line of a page until its code shows at `reading-share` of
-  the editor's size."
-  [app {:keys [namespace-id path line]} reading-share duration]
-  (when-let [page-object (pages/page-of (:page-layer app) namespace-id)]
-    (when-let [point (page-point app namespace-id (pages/line-local-point page-object path line))]
-      (examine! app namespace-id)
-      (navigation/fly-to! (:controller app) point
-                          (camera/distance-for-pixels-per-unit app (* reading-share (camera/reading-pixels app)))
-                          duration))))
+  the editor's size, framed in the part of the view no pane covers. A
+  page with no place yet is waited for over the next frames."
+  [app location reading-share duration]
+  (let [frames-waited 40]
+    (if (flown-to-line! app location reading-share duration)
+      (swap! (:frame app) dissoc :waiting-flight)
+      (swap! (:frame app) assoc :waiting-flight {:location location :reading-share reading-share :duration duration
+                                                 :frames-left frames-waited}))))
+
+(defn advance-waiting-flight!
+  "Starts the flight to a line waiting for its page's place once the page
+  has one, giving up after the frames fly-to-line! allows."
+  [app]
+  (when-let [{:keys [location reading-share duration frames-left]} (:waiting-flight @(:frame app))]
+    (if (or (flown-to-line! app location reading-share duration) (<= frames-left 1))
+      (swap! (:frame app) dissoc :waiting-flight)
+      (swap! (:frame app) update-in [:waiting-flight :frames-left] dec))))
 
 (defn frame-directory!
   "Flies to where one folder's cloud fills the view."
@@ -258,9 +311,7 @@
   (swap! (:frame app) assoc :lifts {})
   (restore-pivot! app))
 
-(defn lifted-ids
-  "Ids of the lifted page and of every page of the lifted folder."
-  [app]
+(defn lifted-ids [app]
   (let [{:keys [lifts directory-visuals]} @(:frame app)]
     (into (set (some-> (get-in lifts [:page :id]) vector))
           (get-in directory-visuals [(get-in lifts [:folder :path]) :member-ids]))))
@@ -272,8 +323,8 @@
     (camera/depth-along (:camera app) (:forward (camera/basis app)) destination)))
 
 (defn offset-function
-  "Function of a page id and home position giving its offset: to the lift
-  point, with a lifted folder, or as moved by hand."
+  "Function of a page id and home position giving its offset, toward the
+  lift point with a lifted folder, or as moved by hand."
   [app]
   (let [{:keys [lifts visuals carried]} @(:frame app)
         moved-pages (:moved-pages @(:state app))

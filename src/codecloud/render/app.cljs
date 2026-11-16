@@ -4,17 +4,19 @@
   :save-view-state!."
   (:require ["three" :as three]
             [codecloud.presentation.arrangement :as arrangement]
+            [codecloud.presentation.focus :as focus]
             [codecloud.presentation.layers :as layers]
             [codecloud.presentation.pairing :as pairing]
             [codecloud.presentation.palette :as palette]
             [codecloud.presentation.scene :as scene]
-            [codecloud.presentation.sky :as sky]
+            [codecloud.presentation.sky-state :as sky-state]
             [codecloud.presentation.ui-state :as ui-state]
             [codecloud.presentation.zoom :as zoom]
             [codecloud.protocol :as protocol]
+            [codecloud.render.backdrop :as backdrop]
             [codecloud.render.camera :as camera]
             [codecloud.render.edges :as edges]
-            [codecloud.render.editing :as editing]
+            [codecloud.render.editing-view :as editing-view]
             [codecloud.render.flights :as flights]
             [codecloud.render.folders :as folders]
             [codecloud.render.gestures :as gestures]
@@ -24,8 +26,9 @@
             [codecloud.render.overlay :as overlay]
             [codecloud.render.pages :as pages]
             [codecloud.render.placement :as placement]
+            [codecloud.render.presence-view :as presence-view]
+            [codecloud.render.problems :as problems]
             [codecloud.render.results :as results]
-            [codecloud.render.sky :as sky-layer]
             [codecloud.render.text :as text]
             [codecloud.render.typing :as typing]))
 
@@ -59,11 +62,9 @@
 
 (defn- sync-view!
   "Brings the scene and overlay in line with a state change, rebuilding
-  page bases only when the shown pages, their arrangement, the header
-  mode, or the font change. Pages with edited files take their buffers'
-  shape. While a file is edited, a new snapshot of the same pages leaves
-  the layout alone until editing stops, so pages hold still under the
-  caret."
+  page bases only when what is shown or how changes. While a file is
+  edited, a new snapshot leaves the layout alone so pages hold still
+  under the caret."
   [app before after]
   (let [frame (:frame app)
         shown (:visible-snapshot after)
@@ -117,7 +118,7 @@
       (swap! frame assoc :caret-changed-at (js/performance.now)))
     (when-not (identical? before after)
       (typing/sync-input! (:input app) after)
-      (editing/forget-settled! app (:buffers after))
+      (editing-view/forget-settled! app (:buffers after))
       (hud/update-hud! (:hud app) after))))
 
 (defn dispatch!
@@ -141,7 +142,15 @@
     :lift-folder (flights/lift-folder! app payload)
     :set-down-folder (flights/set-down! app :folder)
     :fly-to (flights/fly-to-page! app payload)
-    :fly-to-line (flights/fly-to-line! app payload 0.85 1.1)
+    :fly-to-line (let [following? (= :following (:framing payload))
+                       ;; Following an agent keeps more of the page in view
+                       ;; than flying to a place the viewer chose.
+                       reading-share (if following? 0.6 0.85)]
+                   ;; An agent reading a file whole is followed to the
+                   ;; whole page, since no line is where it reads.
+                   (if (and following? (:whole? payload))
+                     (flights/fly-to-page! app (:namespace-id payload))
+                     (flights/fly-to-line! app payload reading-share 1.1)))
     :frame-all (do (flights/set-down-everything! app)
                    (flights/frame-everything! app 1.0))
     :frame-directory (flights/frame-directory! app payload)
@@ -177,13 +186,11 @@
       (when-let [source-key (get source-keys namespace-id)]
         (let [files (get sources source-key)]
           (or (when edited?
-                (editing/edited-source app namespace-id (get-in snapshot [:namespaces namespace-id]) files buffers))
+                (editing-view/edited-source app namespace-id (get-in snapshot [:namespaces namespace-id]) files buffers))
               (when files
                 {:source-key source-key :files files})))))))
 
-(defn- request-wanted-sources!
-  "Asks for the text of pages that want it, a batch at a time."
-  [app now wanted-ids]
+(defn- request-wanted-sources! [app now wanted-ids]
   (let [request-interval 150]
     (when (and (seq wanted-ids) (> (- now (:last-source-request @(:frame app) 0)) request-interval))
       (swap! (:frame app) assoc :last-source-request now)
@@ -226,8 +233,8 @@
           directory-visuals)))
 
 (defn- edge-ends
-  "Function from namespace id to where its page's edges start this frame:
-  {:position :radius :presence :color}, worked out once per page."
+  "Function from namespace id to where its page's edges start this frame,
+  as {:position :radius :presence :color}, worked out once per page."
   [app display-mode]
   (let [found (volatile! {})]
     (fn [namespace-id]
@@ -271,6 +278,32 @@
             (swap! (:frame app) assoc :saved-view view)
             (save! view)))))))
 
+(defn- pages-in-view
+  "Ids of the pages on screen and solid enough to read, the largest
+  first."
+  [app]
+  (let [least-opacity 0.12]
+    (->> (pages/all-pages (:page-layer app))
+         (filter (fn [{:keys [on-screen? opacity leaving?]}]
+                   (and on-screen? (not leaving?) (> (or opacity 0) least-opacity))))
+         (sort-by (comp - #(or % 0) :half-height-pixels))
+         (map :id))))
+
+(defn- report-focus!
+  "Tells the host what the person is looking at, about once a second
+  while it changes, for agents asking about the person's view."
+  [app now]
+  (let [report-interval 1000
+        {:keys [last-focus-report reported-focus]} @(:frame app)]
+    (when (> (- now (or last-focus-report 0)) report-interval)
+      (swap! (:frame app) assoc :last-focus-report now)
+      (let [state @(:state app)]
+        (when (:snapshot state)
+          (let [current (focus/report state (pages-in-view app))]
+            (when (not= current reported-focus)
+              (swap! (:frame app) assoc :reported-focus current)
+              ((get-in app [:transport :send!]) (protocol/message :view/focus current)))))))))
+
 (defn- leak-dive! [app now]
   (let [{:keys [pressure last-push]} (:dive @(:frame app))]
     (when (pos? (or pressure 0))
@@ -279,10 +312,9 @@
              :last-push now))))
 
 (defn- advance-clock!
-  "Advances the clock and sky, returning {:elapsed :time :motion :night
-  :ink :theme-key}: the sky's night amount, the ink amount pages and panels
-  follow, and the theme text is drawn in. Reduced motion stops time and
-  turns the sky at once."
+  "Advances the clock and the light, returning {:elapsed :time :motion
+  :night :ink :theme-key}. Reduced motion stops time and turns the light
+  at once."
   [app now]
   (let [frame @(:frame app)
         state @(:state app)
@@ -290,9 +322,9 @@
         elapsed (min longest-step (/ (- now (or (:last-time frame) now)) 1000))
         motion (if (:reduced-motion? frame) 0 1)
         time (+ (:time frame 0) (* elapsed motion))
-        target-night (sky/night-amount (:sky-mode state) (:theme-kind state) (local-hour))
-        night (if (:reduced-motion? frame) target-night (sky/approach (:night frame) target-night elapsed))
-        ink (sky/ink-amount night)
+        target-night (sky-state/night-amount (:light (ui-state/shown-environment state)) (:theme-kind state) (local-hour))
+        night (if (:reduced-motion? frame) target-night (sky-state/approach (:night frame) target-night elapsed))
+        ink (sky-state/ink-amount night)
         theme-key (palette/theme-key ink)]
     (swap! (:frame app) assoc :last-time now :time time :night night)
     (when (not= theme-key (:theme-key frame))
@@ -337,7 +369,7 @@
   "Gathers each folder's pages in a cloud while the arrangement keeps
   folders together, and remembers where the clouds fall on screen."
   [app {:keys [elapsed time motion night]}]
-  (let [{:keys [arrangement active-layers tint-clouds?]} @(:state app)
+  (let [{:keys [arrangement active-layers tint-clouds?] :as state} @(:state app)
         folder-clouds? (arrangement/shows-folder-clouds? arrangement)
         presence (folder-cloud-presence! app folder-clouds? elapsed)
         least-presence 0.01
@@ -347,26 +379,29 @@
                                           :presence presence
                                           :night night
                                           :time time
-                                          :motion motion})]
+                                          :motion motion
+                                          :look (:folders (ui-state/shown-environment state))})]
     (swap! (:frame app) assoc :folder-screens (if folder-clouds? (overlay/folder-screens app extents) {}))))
 
-(defn- draw-edges-and-sky!
-  "Moves the dependency edges with their pages and turns the sky with the
-  camera."
+(defn- draw-edges-and-backdrop!
+  "Moves the dependency edges with their pages and turns the backdrop with
+  the camera."
   [app {:keys [elapsed time motion night ink]}]
   (let [{:keys [width height]} (camera/viewport app)
-        ^js camera (:camera app)]
+        ^js camera (:camera app)
+        pixel-ratio (.getPixelRatio ^js (:renderer app))]
     (edges/update-edges! (:edge-layer app)
                          {:ends-of (edge-ends app (:display-mode @(:state app)))
                           :ink ink
                           :camera camera
                           :viewport-width width
                           :viewport-height height
-                          :pixel-ratio (.getPixelRatio ^js (:renderer app))
+                          :pixel-ratio pixel-ratio
                           :time time
                           :motion motion})
-    (sky-layer/update-sky! (:sky app) camera {:time time :night night :dusk (sky/dusk-amount night)
-                                              :motion motion :elapsed elapsed})))
+    (backdrop/update-backdrop! (:backdrop app) camera (ui-state/shown-environment @(:state app))
+                               {:time time :night night :dusk (sky-state/dusk-amount night) :motion motion
+                                :elapsed elapsed :viewport-height height :pixel-ratio pixel-ratio})))
 
 (defn- update-editing!
   "Draws the caret and the selection on the page being edited and keeps
@@ -375,27 +410,31 @@
   (let [{:keys [editing buffers]} @(:state app)
         buffer (get buffers (:path editing))
         page-object (when editing (pages/page-of (:page-layer app) (:namespace-id editing)))]
-    (editing/update-caret! (:caret-layer app)
-                           {:page-object page-object
-                            :buffer buffer
-                            :theme-name theme-key
-                            :code-colors (ui-state/shown-code-colors @(:state app))
-                            :focused? (typing/focused? (:input app))
-                            :since-change (- now (:caret-changed-at @(:frame app) 0))
-                            :viewport (camera/viewport app)})
-    (when-let [point (and page-object buffer (editing/caret-screen-point page-object buffer))]
+    (editing-view/update-caret! (:caret-layer app)
+                                {:page-object page-object
+                                 :buffer buffer
+                                 :token-lines (when buffer (editing-view/buffer-token-lines app buffer))
+                                 :theme-name theme-key
+                                 :code-colors (ui-state/shown-code-colors @(:state app))
+                                 :focused? (typing/focused? (:input app))
+                                 :since-change (- now (:caret-changed-at @(:frame app) 0))
+                                 :viewport (camera/viewport app)})
+    (when-let [point (and page-object buffer (editing-view/caret-screen-point page-object buffer))]
       (typing/place! (:input app) point (:pixels-per-unit page-object)))))
 
 (defn- update-overlay!
   "Refreshes what floats over the scene, which is the hovered thing, the
-  labels, the caret, evaluation results, the tooltip, and the dive ring."
+  labels, the caret, evaluation results, where agents work, the tooltip,
+  and the dive ring."
   [app now theme-key]
   (when (or (navigation/flying? (:controller app)) (placement/spacing-moving? app))
     (swap! (:frame app) assoc-in [:pointer :moved?] true))
   (overlay/refresh-hover! app)
   (labels/update-labels! (:labels app) (overlay/label-candidates app))
   (update-editing! app now theme-key)
+  (problems/update-marks! (:problem-layer app) (:page-layer app) @(:state app) theme-key)
   (results/update-tags! (:results app) (:page-layer app) @(:state app))
+  (presence-view/update! (:presence app) (:page-layer app) @(:state app) theme-key)
   (let [{:keys [editing menu]} @(:state app)
         {:keys [pointer dive]} @(:frame app)]
     (hud/update-pointer-overlays! (:hud app) {:pointer [(:x pointer 0) (:y pointer 0)]
@@ -406,9 +445,9 @@
 
 (defn- render! [app]
   (let [^js renderer (:renderer app)
-        {sky-scene :scene sky-camera :camera} (:sky app)]
+        {backdrop-scene :scene backdrop-camera :camera} (:backdrop app)]
     (.clear renderer)
-    (.render renderer sky-scene sky-camera)
+    (.render renderer backdrop-scene backdrop-camera)
     (.render renderer (:scene app) (:camera app))))
 
 (defn- draw-frame! [app now]
@@ -418,13 +457,15 @@
     (navigation/update! (:controller app) (:elapsed clock))
     (draw-pages! app now clock)
     (draw-folder-clouds! app clock)
-    (draw-edges-and-sky! app clock)
+    (draw-edges-and-backdrop! app clock)
     (leak-dive! app now)
     (flights/frame-when-settled! app)
     (flights/advance-arrival! app now)
+    (flights/advance-waiting-flight! app)
     (maybe-tick-playback! app now)
     (update-overlay! app now (:theme-key clock))
     (save-view-state! app now)
+    (report-focus! app now)
     (render! app)))
 
 (defn- report-frame-error!
@@ -437,14 +478,28 @@
       (swap! (:frame app) update :reported-errors (fnil conj #{}) message)
       ((get-in app [:transport :send!]) (protocol/message :view/log {:message message})))))
 
-(defn- frame!
-  "Draws one frame and asks for the next, even when this one failed, so
-  one bad frame never stops the cloud."
+(defn- frame-due?
+  "True when the environment draws every frame the display offers, or when
+  enough time has passed since the last frame for the frames a second it
+  draws."
   [app now]
-  (try
-    (draw-frame! app now)
-    (catch :default error
-      (report-frame-error! app error)))
+  (if-let [frames-per-second (:frames-per-second (ui-state/shown-environment @(:state app)))]
+    (let [;; A frame arriving this much early still counts, so a 30 frame
+          ;; limit on a 60 Hz display draws every second frame.
+          early-milliseconds 4]
+      (>= (- now (:drawn-at @(:frame app) 0)) (- (/ 1000 frames-per-second) early-milliseconds)))
+    true))
+
+(defn- frame!
+  "Draws one frame when one is due and asks for the next, even when this
+  one failed, so one bad frame never stops the cloud."
+  [app now]
+  (when (frame-due? app now)
+    (swap! (:frame app) assoc :drawn-at now)
+    (try
+      (draw-frame! app now)
+      (catch :default error
+        (report-frame-error! app error))))
   (js/requestAnimationFrame #(frame! app %)))
 
 ;; Starting
@@ -484,8 +539,8 @@
   easing from the sky shown before they arrived."
   [app]
   (let [state @(:state app)
-        night (sky/night-amount (:sky-mode state) (:theme-kind state) (local-hour))
-        theme-key (palette/theme-key (sky/ink-amount night))]
+        night (sky-state/night-amount (:light (ui-state/shown-environment state)) (:theme-kind state) (local-hour))
+        theme-key (palette/theme-key (sky-state/ink-amount night))]
     (swap! (:frame app) assoc :night night :theme-key theme-key :sky-settled? true)
     (hud/apply-theme! (:hud app) theme-key)))
 
@@ -521,7 +576,7 @@
   `night`."
   [night]
   {:night night
-   :theme-key (palette/theme-key (sky/ink-amount night))
+   :theme-key (palette/theme-key (sky-state/ink-amount night))
    :character-width 0.5
    :lifts {}
    :pointer {:x 0 :y 0 :ndc-x 0 :ndc-y 0 :inside? false :moved? false}
@@ -556,13 +611,15 @@
              :camera camera
              :scene scene
              :dispatch! dispatch-to-app!
-             :sky (sky-layer/create-sky)
+             :backdrop (backdrop/create-backdrop)
              :folder-layer (folders/create-layer scene)
              :edge-layer (edges/create-layer scene)
              :page-layer (pages/create-layer scene)
              :labels label-layer
              :results (results/create-layer (:root label-layer))
-             :caret-layer (editing/create-layer)
+             :presence (presence-view/create-layer (:root label-layer) dispatch-to-app!)
+             :caret-layer (editing-view/create-layer)
+             :problem-layer (problems/create-layer)
              :input (typing/create-input container dispatch-to-app!
                                          #(let [{:keys [editing buffers]} @(:state @app-holder)]
                                             (get buffers (:path editing))))

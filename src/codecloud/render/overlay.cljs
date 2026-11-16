@@ -1,6 +1,6 @@
 (ns codecloud.render.overlay
-  "Per-frame overlay facts: labels, folder clouds on screen, and the
-  hovered thing."
+  "Overlay facts worked out each frame, the labels, the folder clouds on
+  screen, and the hovered thing."
   (:require [codecloud.presentation.arrangement :as arrangement]
             [codecloud.presentation.ui-state :as ui-state]
             [codecloud.presentation.wording :as wording]
@@ -164,26 +164,38 @@
   (when (:carried @(:frame app))
     (set! (.. ^js (.-domElement ^js (:renderer app)) -style -cursor) "grabbing")))
 
+(defn- line-problems [state {:keys [origin]}]
+  (let [line (dec (:line origin 0))
+        rank {:error 0 :warning 1 :information 2 :hint 3}]
+    (sort-by (comp rank :severity)
+             (filter #(<= (:line %) line (:end-line %)) (get-in state [:diagnostics (:path origin)])))))
+
 (defn shown-hover
-  "What the tooltip describes: the hovered thing, unless lifted or
-  carried. Code waits until the pointer rests on it."
+  "What the tooltip describes, which is the hovered thing unless it is
+  lifted or carried. Code waits until the pointer rests on it, and a line
+  with problems shows them sooner, even on the lifted page."
   [app now]
   (let [{:keys [hover hover-since pointer directory-visuals visuals carried]} @(:frame app)
         state @(:state app)
-        code-hint-delay 900]
+        code-hint-delay 900
+        problem-delay 350
+        problems (when (= :code (:kind hover)) (seq (line-problems state hover)))]
     (when (and (:inside? pointer)
                (nil? carried)
-               (not (and (contains? #{:namespace :code} (:kind hover))
-                         (= (:id hover) (:focused-id state))))
+               (or problems
+                   (not (and (contains? #{:namespace :code} (:kind hover))
+                             (= (:id hover) (:focused-id state)))))
                (or (not= :code (:kind hover))
-                   (> (- now (or hover-since now)) code-hint-delay)))
+                   (> (- now (or hover-since now)) (if problems problem-delay code-hint-delay))))
       (case (:kind hover)
         :folder (let [folder (get directory-visuals (:path hover))]
                   (assoc hover
                          :folder folder
                          :unit-words (wording/unit-words {:namespaces (select-keys (get-in state [:snapshot :namespaces])
                                                                                    (:member-ids folder))})))
-        :code (assoc hover :editable? (ui-state/editable? state (:node hover) (get-in hover [:origin :path])))
+        :code (assoc hover
+                     :editable? (ui-state/editable? state (:node hover) (get-in hover [:origin :path]))
+                     :problems problems)
         :namespace (assoc hover
                           :rank (get-in visuals [(:id hover) :rank])
                           :ranked-by (:label (arrangement/arrangement (:arrangement state)))

@@ -2,6 +2,16 @@
   "Promise helpers that let asynchronous IO read as a pipeline of plain
   functions.")
 
+(defn error-text
+  "What went wrong, as an Error's message or else the value as text."
+  [error]
+  (or (some-> ^js error .-message) (str error)))
+
+(defn coded-error
+  "An Error with `message` carrying `code`, as Node's own errors do."
+  [message code]
+  (js/Object.assign (js/Error. message) #js {:code code}))
+
 (defn resolved [value]
   (js/Promise.resolve value))
 
@@ -11,13 +21,13 @@
 (defn then
   "Runs `step` on the promise's value; `step` may return a value or a
   promise."
-  [promise step]
-  (.then promise step))
+  [pending step]
+  (.then pending step))
 
 (defn recover
   "Runs `handler` on the promise's error and continues with its result."
-  [promise handler]
-  (.catch promise handler))
+  [pending handler]
+  (.catch pending handler))
 
 (defn all
   "Promise of a vector holding the results of every promise, in order."

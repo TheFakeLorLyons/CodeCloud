@@ -1,16 +1,15 @@
 (ns codecloud.render.page-text
-  "Readable text on near pages: code tiles at the sharpness the screen
-  needs, the name band, and the names-only view's large name."
+  "Readable text on near pages, the code tiles at the sharpness the screen
+  needs, the name band, and the large name of the names-only view."
   (:require ["three" :as three]
             [codecloud.presentation.page :as page]
+            [codecloud.render.planes :as planes]
             [codecloud.render.text :as text]))
 
 (def ^:private tile-levels
   "Canvas pixels per line at which text tiles are drawn. A tile uses the
   smallest level that is at least as sharp as the screen shows it."
   [8 12 18 26 38 52])
-
-(defonce ^:private unit-plane (three/PlaneGeometry. 1 1))
 
 (defn time-left?
   "True while the frame's budget for drawing text and tables lasts."
@@ -32,7 +31,7 @@
                                                     :depthWrite false
                                                     :depthTest false
                                                     :opacity 0})
-        ^js mesh (three/Mesh. unit-plane material)]
+        ^js mesh (three/Mesh. planes/unit-plane material)]
     (set! (.-renderOrder mesh) 2)
     mesh))
 
@@ -168,9 +167,7 @@
         (.add ^js overlay mesh)
         (assoc page-object :title {:mesh mesh :key title-key})))))
 
-(defn sync-name
-  "The large name of the names-only view."
-  [page-object {:keys [theme-name editor-font] :as frame}]
+(defn sync-name [page-object {:keys [theme-name editor-font] :as frame}]
   (let [{:keys [visual overlay] large-name :name} page-object
         label (select-keys visual [:rank :tag :prefix :leaf])
         name-key [label theme-name editor-font]]

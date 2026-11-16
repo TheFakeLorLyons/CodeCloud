@@ -1,8 +1,9 @@
 (ns codecloud.languages.manifests
-  "Project files guiding import resolution, never pages: package.json,
-  tsconfig.json, jsconfig.json, pyproject.toml, and setup.cfg, and for C
-  and C++ the include folders that compile_commands.json,
-  compile_flags.txt, CMakeLists.txt, Makefiles, and meson.build name."
+  "Project files guiding import resolution, never pages. They are
+  package.json, tsconfig.json, jsconfig.json, pyproject.toml, and
+  setup.cfg, and for C and C++ the include folders that
+  compile_commands.json, compile_flags.txt, CMakeLists.txt, Makefiles,
+  and meson.build name."
   (:require [clojure.string :as string]
             [codecloud.languages.json :as json]))
 
@@ -107,16 +108,12 @@
           :when entry]
       entry)))
 
-(defn- meson-include-folders
-  "Folders that meson's include_directories names in quotes."
-  [text]
+(defn- meson-include-folders [text]
   (for [[_ arguments] (re-seq #"include_directories\s*\(([^)]*)\)" text)
         [_ single-quoted double-quoted] (re-seq #"'([^']*)'|\"([^\"]*)\"" arguments)]
     (folder-entry (or single-quoted double-quoted) :manifest)))
 
-(defn- c-build
-  "A manifest of a C or C++ build: the include folders it names."
-  [folders]
+(defn- c-build [folders]
   {:kind :c-build :include-folders (vec (distinct folders))})
 
 (defn read-manifest

@@ -1,18 +1,10 @@
 (ns codecloud.presentation.layers
-  "Color layers. Each colors pages by one kind of information, and a page
-  blends the colors of every layer turned on, mixed in Oklab. A page no
-  layer colors stays gray.
-
-  A layer has :key and :label; :prepare, from a snapshot to a context;
-  :color, from the context and a page to {:day :night} Oklch or nil;
-  :describe, from the same to a few words; and :legend, from the context
-  to [{:label :day :night :target}] for :kind :category, or {:low :high
-  :low-label :high-label :low-target :high-target :unclassified} for
-  :heat. Optional keys: :weight; :recolor, from the context and chosen
-  colors to the context; :entry, from the context and a page to what a
-  chosen color for it replaces; and :entry-color, from the context and
-  such an entry to its color. Any such map in `built-in` gains a
-  checkbox."
+  "Color layers. A page blends the colors of every layer turned on, mixed
+  in Oklab, and stays gray when none colors it. A layer has :key and
+  :label, :prepare from a snapshot to a context, :color from the context
+  and a page to {:day :night} Oklch or nil, :describe giving a few
+  words, and :legend giving category rows or a :heat scale. It may add a
+  :weight, and for chosen colors :recolor, :entry, and :entry-color."
   (:require [clojure.string :as string]
             [codecloud.collections :as collections]
             [codecloud.languages.catalog :as catalog]
@@ -71,9 +63,7 @@
 
 ;; Folders
 
-(defn folder-key
-  "The folders a path names, outermost first."
-  [path]
+(defn folder-key [path]
   (vec (remove string/blank? (string/split path #"/"))))
 
 (defn folder-path
@@ -118,24 +108,19 @@
                          [folders (tone (+ first-hue (* hue-range (/ (+ index 0.5) folder-count))) index)]))
           ordered)))
 
-(defn- largest-folders
-  "The `most` folders holding the most pages, as [folders page-count]."
-  [snapshot most]
+(defn- largest-folders [snapshot most]
   (->> (frequencies (map folder-path (vals (:namespaces snapshot))))
        (sort-by (fn [[folders page-count]] [(- page-count) (tree-order folders)]))
        (take most)))
 
-(defn- with-chosen-folders
-  "A folder or dependents layer's context with the folder colors chosen
-  in `overrides`."
-  [context overrides]
+(defn- with-chosen-folders [context overrides]
   (update context :colors merge
           (into {} (map (fn [[path colors]] [(folder-key path) colors])) (get overrides :folder))))
 
 (defn- folder-context
-  "What the folder and dependents layers work out: every folder's color,
-  each page's folders, and the largest folders, which their legends
-  list."
+  "What the folder and dependents layers work out, which is every folder's
+  color, each page's folders, and the largest folders, which their
+  legends list."
   [snapshot]
   (let [listed 8]
     {:colors (folder-colors snapshot)
@@ -144,10 +129,7 @@
 
 ;; Languages
 
-(defn- color-family
-  "The Language layer entry for `language-id`: its family, or
-  :unclassified for a language read only as text."
-  [language-id]
+(defn- color-family [language-id]
   (if (catalog/analyzed? language-id) (catalog/language-family language-id) :unclassified))
 
 (defn- language-families
@@ -166,10 +148,7 @@
        (sort-by (juxt #(= :unclassified (:family %)) (comp - :page-count) :label))
        (mapv #(dissoc % :page-count))))
 
-(defn- family-color
-  "{:day :night} of a Language layer entry: the color chosen for it, or
-  its accent."
-  [{:keys [chosen]} family]
+(defn- family-color [{:keys [chosen]} family]
   (or (get chosen family)
       {:day (palette/language-accent :day family) :night (palette/language-accent :night family)}))
 
@@ -239,11 +218,13 @@
                       (get colors folders))))})
 
 (defn- measurement
-  "A page's `metric`: its importance, or one of its measurements."
+  "A page's importance, one of its measurements, or for [:flag name] how
+  often that flag matched in it."
   [metric node]
-  (if (= :importance metric)
-    (:importance node 0)
-    (get-in node [:metrics metric] 0)))
+  (cond
+    (= :importance metric) (:importance node 0)
+    (vector? metric) (get-in node [:flag-counts (second metric)] 0)
+    :else (get-in node [:metrics metric] 0)))
 
 (def ^:private text-metrics
   "Measurements every page has, whatever its language. The rest need an
@@ -251,14 +232,13 @@
   #{:lines :flags})
 
 (defn- measured?
-  "True when `metric` means something for `node`: a measurement of text,
-  or any measurement of a page in an analyzed language."
+  "True when `metric` means something for `node`, as a measurement of text
+  does for any page, and every measurement does for a page in an analyzed
+  language."
   [metric node]
-  (or (contains? text-metrics metric) (catalog/analyzed? (page/language-of node))))
+  (or (contains? text-metrics metric) (vector? metric) (catalog/analyzed? (page/language-of node))))
 
-(defn- rounded
-  "`value` to two decimal places."
-  [value]
+(defn- rounded [value]
   (let [hundredths 100.0]
     (/ (Math/round (* hundredths value)) hundredths)))
 
@@ -300,9 +280,7 @@
                         :low-target [layer-key :low] :high-target [layer-key :high]}
                  unclassified? (assoc :unclassified palette/unclassified)))}))
 
-(defn- theme-pair
-  "[low high] ramp ends, each {:day :night}, from two palette roles."
-  [low-key high-key]
+(defn- theme-pair [low-key high-key]
   [{:day (palette/color-of :day low-key) :night (palette/color-of :night low-key)}
    {:day (palette/color-of :day high-key) :night (palette/color-of :night high-key)}])
 
@@ -369,18 +347,20 @@
      :legend (fn [context] [(merge {:label label :target [layer-key :color]} (:color context))])}))
 
 (defn custom-layer
-  "The layer a validated cloud file entry describes: a heat layer for
-  {:metric :colors}, or a pattern layer for {:patterns :colors}."
+  "The layer a validated cloud file entry describes, a heat layer for
+  {:metric :colors} or a pattern layer for {:patterns :colors}. Lines and
+  a flag's matches gather in a few pages, so they shade along the
+  logarithm."
   [{layer-key :key :keys [label metric colors patterns]}]
   (if metric
     (let [[low high] (map color-named colors)]
       (heat-layer {:key layer-key :label label :metric metric :low low :high high
-                   :log-scale? (= :lines metric) :low-label "less" :high-label "more"}))
+                   :log-scale? (or (= :lines metric) (vector? metric)) :low-label "less" :high-label "more"}))
     (pattern-layer {:key layer-key :label label :patterns patterns :color (color-named (first colors))})))
 
 (defn registry
-  "Every layer a cloud offers: the built-in ones, then those its cloud
-  file declares."
+  "Every layer a cloud offers, the built-in ones followed by those its
+  cloud file declares."
   [custom-specs]
   (into built-in (map custom-layer) custom-specs))
 
@@ -399,8 +379,8 @@
          layers)))
 
 (defn default-keys
-  "Layers on by default: folder and dependents, plus language once a tenth
-  of the pages are outside the most common language."
+  "Layers on by default, folder and dependents, joined by language once a
+  tenth of the pages are outside the most common language."
   [snapshot]
   (let [counts (vals (frequencies (map page/language-of (vals (:namespaces snapshot)))))
         page-count (reduce + 0 counts)
@@ -410,9 +390,7 @@
       [:language :folder :dependents]
       [:folder :dependents])))
 
-(defn layer-color
-  "The color one layer gives `node`, or nil."
-  [{:keys [color]} context node]
+(defn layer-color [{:keys [color]} context node]
   (color context node))
 
 (defn page-color
@@ -441,7 +419,7 @@
           (:namespaces snapshot))))
 
 (defn cloud-tint
-  "How strongly folder clouds take their folders' colors: :strong while
+  "How strongly folder clouds take their folders' colors, :strong while
   the Folder layer colors the pages alone, :slight under other layers, or
   nil once the viewer turns tinting off."
   [active-layers tint-clouds?]

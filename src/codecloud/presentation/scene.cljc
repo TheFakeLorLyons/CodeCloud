@@ -107,16 +107,10 @@
   [node]
   (and (some? (:cycle-id node)) (= :warning (:cycle-severity node))))
 
-(defn- color-spec
-  "A page's color for the palette: the :blend of its layers, nil when none
-  colors it, under the marks of cycles and parse errors."
-  [{:keys [cyclic? cycle-warning? parse-error?]} blend]
+(defn- color-spec [{:keys [cyclic? cycle-warning? parse-error?]} blend]
   {:blend blend :cyclic? cyclic? :cycle-warning? cycle-warning? :parse-error? parse-error?})
 
-(defn- ranks
-  "Map of id to place, from 1, of the shown namespaces in a ranked
-  arrangement, or nil for the others."
-  [snapshot visible-ids arrangement-key]
+(defn- ranks [snapshot visible-ids arrangement-key]
   (when-let [metric (:metric (arrangement/arrangement arrangement-key))]
     (zipmap (arrangement/ranked-ids snapshot visible-ids metric) (iterate inc 1))))
 
@@ -134,8 +128,8 @@
 
 (defn page-bases
   "Id to the parts of a page's look that change only with the snapshot,
-  filter, arrangement, or font: :geometry, :prefix, :leaf, :rank, :tag,
-  and the cycle and parse marks."
+  filter, arrangement, or font, which are its :geometry, :prefix, :leaf,
+  :rank, :tag, and the cycle and parse marks."
   [snapshot arrangement-key visible-ids character-width]
   (let [shared-prefix (root-prefix snapshot)
         mixed? (several-languages? snapshot)
@@ -159,7 +153,7 @@
           (:namespaces snapshot))))
 
 (defn page-visuals
-  "`bases` with the look of the moment: a :color-spec for the palette, the
+  "`bases` with the look of the moment, a :color-spec for the palette, the
   :folder-hue its cloud leans toward, :emphasis, :lifted?, and :dirty?
   when a file of the page has unsaved changes."
   [snapshot ui-state bases]
@@ -177,9 +171,9 @@
                 bases))))
 
 (defn shaped-by-buffers
-  "`visuals` with each page whose files have buffers sized for the
-  buffers' text, remembering the size the snapshot gave it as :base-size.
-  The page being edited keeps its columns and is marked :edited?."
+  "`visuals` with each page sized for its buffers' text, so lines typed
+  since the last analysis have places, keeping the snapshot's size as
+  :base-size. The page being edited keeps its columns."
   [visuals {:keys [buffers editing snapshot]} character-width]
   (if (or (empty? buffers) (not= :working-tree (:id snapshot)))
     visuals
@@ -193,6 +187,7 @@
                                                 file))
                                             files)]
                       (assoc! result id (assoc visual
+                                               :files sized-files
                                                :geometry (page/geometry sized-files character-width
                                                                         (when edited? (:columns editing)))
                                                :base-size [(:width geometry) (:height geometry)]
@@ -221,8 +216,8 @@
       (/ (reduce + hues) (count hues)))))
 
 (defn directory-visuals
-  "Folder path to its cloud's look: :member-ids, :emphasis, :hue, :prefix,
-  and :leaf."
+  "Folder path to its cloud's look, made of :member-ids, :emphasis, :hue,
+  :prefix, and :leaf."
   [visuals cloud-name]
   (into {}
         (map (fn [[directory members]]
@@ -239,10 +234,9 @@
   #{:alias :implicit :link})
 
 (defn drawn-edges
-  "The edges of `snapshot` that draw as lines, each marked
-  :into-declaration? when it runs into a header or module interface. A
-  page's use of a source through the header beside it draws as its one
-  line to the header."
+  "The edges that draw as lines, marked :into-declaration? into a header
+  or module interface. A use of a source through the header beside it
+  draws as one line to the header."
   [snapshot]
   (let [namespaces (:namespaces snapshot)
         shown-through (pairing/reached-through-partners (:edges snapshot) namespaces)]
@@ -253,10 +247,9 @@
           (:edges snapshot))))
 
 (defn edge-visuals
-  "Edges between shown pages with :emphasis and a :role, :requires or
-  :required-by, toward the lifted or hovered page. Ranked walls dim edges
-  outside cycles; the language layer makes cross-language edges :heavy?.
-  Only `drawn-edges` take part."
+  "Edges between shown pages with :emphasis and a :role toward the lifted
+  or hovered page. Ranked walls dim edges outside cycles, and the
+  language layer makes cross-language edges :heavy?."
   [snapshot {:keys [focused-id hovered-id search arrangement active-layers]} visible-ids]
   (let [anchor-id (or focused-id hovered-id)
         searching? (and (:open? search) (seq (search-matches snapshot (:query search))))

@@ -2,6 +2,7 @@
   "The cloud's name, the snapshot shown, the totals table, and the
   arrangement, layers, and filter when they differ from the usual."
   (:require [clojure.string :as string]
+            [codecloud.counting :as counting]
             [codecloud.languages.catalog :as catalog]
             [codecloud.presentation.arrangement :as arrangement]
             [codecloud.presentation.ui-state :as ui-state]
@@ -29,15 +30,15 @@
   (let [[_ plural] (wording/unit-words snapshot)
         rows (language-rows snapshot)
         row (fn [label & cells] [:tr [:th {:scope "row"} label] (map (fn [cell] [:td cell]) cells)])
-        counted-row (fn [label value] (when (pos? (or value 0)) (row label (words/formatted-count value) "")))]
+        counted-row (fn [label value] (when (pos? (or value 0)) (row label (counting/grouped-digits value) "")))]
     [:table.totals-table
      [:thead [:tr [:td] [:th {:scope "col"} (words/capitalized plural)] [:th {:scope "col"} "Lines"]]]
      [:tbody
       (for [[label page-count line-count] rows]
-        (row label (words/formatted-count page-count) (words/formatted-count line-count)))]
+        (row label (counting/grouped-digits page-count) (counting/grouped-digits line-count)))]
      (when (> (count rows) 1)
        [:tbody.totals-sum
-        (row "All" (words/formatted-count (count (:namespaces snapshot))) (words/formatted-count (:lines totals)))])
+        (row "All" (counting/grouped-digits (count (:namespaces snapshot))) (counting/grouped-digits (:lines totals)))])
      [:tbody.totals-problems
       (counted-row "Cyclic dependencies" (:cycles totals))
       (counted-row "Cyclic imports" (:cycle-warnings totals))

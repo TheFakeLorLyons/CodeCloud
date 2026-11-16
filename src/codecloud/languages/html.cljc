@@ -1,5 +1,5 @@
 (ns codecloud.languages.html
-  "Reads HTML pages: the scripts and style sheets they load, the local
+  "Reads HTML pages for the scripts and style sheets they load, the local
   pages they link to, and the imports of their module scripts."
   (:require [clojure.string :as string]
             [codecloud.languages.javascript :as javascript]
@@ -38,8 +38,8 @@
       (when-not (string/blank? without-query) without-query))))
 
 (defn- tag-reference
-  "The import a tag makes, or nil: a script, style sheet, preloaded
-  module, or linked local page."
+  "The import a tag makes, of a script, a style sheet, a preloaded module,
+  or a linked local page, or nil."
   [{tag-name :name :keys [attributes line]}]
   (let [relations (set (string/split (string/lower-case (get attributes "rel" "")) #"\s+"))
         loaded-as (string/lower-case (get attributes "as" ""))
@@ -68,8 +68,8 @@
         (javascript/imports tokens)))
 
 (defn read-page
-  "Facts of an HTML page: what it loads and links to, and the uses of the
-  names its module scripts import."
+  "Facts of an HTML page, which are what it loads and links to and the
+  uses of the names its module scripts import."
   [path text options]
   (structure/read-structured :html path text options
                              (comp imports scanner/significant)

@@ -1,6 +1,7 @@
 (ns codecloud.io.analyzer
   "Analyzes a cloud's root as its working tree or at any commit. Facts are
-  cached by path and content, so only changed files parse again."
+  cached by path and content, so only changed files parse again, and a
+  working-tree file whose stamp has not changed is not read again."
   (:require [codecloud.io.files :as files]
             [codecloud.io.git :as git]
             [codecloud.io.task :as task]
@@ -30,7 +31,10 @@
    :git-executable (or git-executable "git")
    :grammar-directory grammar-directory
    :repository-root (atom ::unknown)
-   :facts-by-key (atom {})
+   :working-facts (atom {})
+   :history-facts (atom {:recent {} :older {}})
+   :stamps (atom {})
+   :working-build (atom nil)
    :snapshots (atom {:order [] :by-id {}})})
 
 (defn repository-root
@@ -46,8 +50,9 @@
                    found-root)))))
 
 (defn read-configuration
-  "Resolves to {:config :problems}: the defaults, then deps.edn's
-  :codecloud/config, then the cloud file's text, each overriding the last."
+  "Resolves to {:config :problems}, the configuration read from the
+  defaults, then deps.edn's :codecloud/config, then the cloud file's
+  text, each overriding the last."
   [analyzer cloud-file-text]
   (task/then (files/read-text (files/absolute-path (:root-directory analyzer) "deps.edn"))
              (fn [deps-text]
@@ -72,9 +77,7 @@
       (and (source-path? path)
            (selection/selected? scope path)))))
 
-(defn- measuring-options
-  "The parts of a configuration that change what a file's facts measure."
-  [configuration]
+(defn- measuring-options [configuration]
   (select-keys configuration [:flags :complection]))
 
 (defn- facts-key [path content-key measuring]
@@ -94,31 +97,43 @@
     (str "C and C++ pages show includes without definitions, since their grammars did not load: " error)))
 
 (defn- cached-facts
-  "Facts remembered for this path and content, ::skipped for a file read
-  before and left out, or nil for one never read."
-  [analyzer path content-key measuring]
-  (get @(:facts-by-key analyzer) (facts-key path content-key measuring)))
+  "Facts remembered under `cache-key`, ::skipped for a file read before and
+  left out, or nil for one never read."
+  [analyzer cache-key]
+  (let [{:keys [recent older]} @(:history-facts analyzer)]
+    (or (get @(:working-facts analyzer) cache-key)
+        (get recent cache-key)
+        (get older cache-key))))
+
+(defn- remember-history-facts!
+  "Keeps facts read from history in the newer generation. Once that one
+  fills it becomes the older, and the older is let go."
+  [analyzer cache-key facts]
+  (let [generation-limit 20000]
+    (swap! (:history-facts analyzer)
+           (fn [{:keys [recent older]}]
+             (if (< (count recent) generation-limit)
+               {:recent (assoc recent cache-key facts) :older older}
+               {:recent {cache-key facts} :older recent})))))
+
+(defn- unless-skipped [facts]
+  (when-not (= ::skipped facts) facts))
 
 (defn- facts-for
-  "Facts for one file, or nil when left out, cached by path, content, and
-  options. `parse` reads syntax trees, when loaded. The cache empties past
-  a limit."
-  [analyzer path content-key text measuring parse]
-  (let [cache-limit 40000
-        cached (cached-facts analyzer path content-key measuring)]
-    (if (some? cached)
-      (when-not (= ::skipped cached) cached)
-      (let [facts (some-> (languages/analyze-file path text (assoc measuring :parse-tree parse))
-                          (assoc :content-key content-key))]
-        (when (> (count @(:facts-by-key analyzer)) cache-limit)
-          (reset! (:facts-by-key analyzer) {}))
-        (swap! (:facts-by-key analyzer) assoc (facts-key path content-key measuring) (or facts ::skipped))
-        facts))))
+  "Facts for one file, nil when left out or unreadable, cached or read
+  from `text`. `remember!` gets each cache entry used."
+  [analyzer path content-key text measuring parse remember!]
+  (let [cache-key (facts-key path content-key measuring)
+        found (or (cached-facts analyzer cache-key)
+                  (when text
+                    (or (some-> (languages/analyze-file path text (assoc measuring :parse-tree parse))
+                                (assoc :content-key content-key))
+                        ::skipped)))]
+    (when found
+      (remember! cache-key found)
+      (unless-skipped found))))
 
-(defn- wanted-facts
-  "The facts of `facts-list` that exist and are manifests or in a
-  language the configuration reads."
-  [configuration facts-list]
+(defn- wanted-facts [configuration facts-list]
   (filterv #(and % (or (:manifest %) (config/language-wanted? configuration (:language %)))) facts-list))
 
 (defn- remember-snapshot!
@@ -135,13 +150,14 @@
     built-snapshot))
 
 (defn forget-snapshots!
-  "Drops remembered snapshots, for example after the configuration changed."
+  "Drops remembered snapshots and file stamps, so the next reading builds
+  afresh, for example after the configuration changed."
   [analyzer]
-  (reset! (:snapshots analyzer) {:order [] :by-id {}}))
+  (reset! (:snapshots analyzer) {:order [] :by-id {}})
+  (reset! (:working-build analyzer) nil)
+  (reset! (:stamps analyzer) {}))
 
-(defn remembered-snapshot
-  "The commit snapshot for `sha` when it is still remembered, or nil."
-  [analyzer sha]
+(defn remembered-snapshot [analyzer sha]
   (get-in @(:snapshots analyzer) [:by-id sha]))
 
 (defn- limit-notice [skipped-count]
@@ -160,38 +176,89 @@
                    (files/walk-files root-directory (configured-rule-sets configuration) wanted-file?))))))
 
 (defn- working-text
-  "Resolves to the text of the working tree file at `path`: what
-  `open-text` holds for it, as for a file with unsaved changes, or else
-  what is on disk, or nil when unreadable."
+  "Resolves to the text of the working tree file at `path`, which is what
+  `open-text` holds for a file with unsaved changes, else what is on
+  disk, or nil when unreadable."
   [analyzer open-text path]
   (if-let [text (open-text path)]
     (task/resolved text)
     (files/read-text (files/absolute-path (:root-directory analyzer) path))))
 
+(defn- working-file-facts
+  "Resolves to the facts of the working tree file at `path`. A file whose
+  stamp is unchanged is not read again, unless its last reading came
+  within seconds of a change, which a coarse clock could hide."
+  [analyzer path measuring open-text parse remember!]
+  (if-let [text (open-text path)]
+    (task/resolved (facts-for analyzer path (files/content-key text) text measuring parse remember!))
+    (let [file-path (files/absolute-path (:root-directory analyzer) path)
+          stamped-at (js/Date.now)
+          settle-milliseconds 3000]
+      (task/then
+       (files/stamp file-path)
+       (fn [stamp]
+         (let [known (get @(:stamps analyzer) path)
+               known-key (when (and stamp (:settled? known) (= stamp (:stamp known)))
+                           (facts-key path (:content-key known) measuring))
+               known-facts (some->> known-key (cached-facts analyzer))]
+           (cond
+             (nil? stamp) nil
+             known-facts (do (remember! known-key known-facts)
+                             (unless-skipped known-facts))
+             :else (task/then (files/read-text file-path)
+                              (fn [text]
+                                (when text
+                                  (let [content-key (files/content-key text)]
+                                    (swap! (:stamps analyzer) assoc path
+                                           {:stamp stamp
+                                            :content-key content-key
+                                            :settled? (> (- stamped-at (first stamp)) settle-milliseconds)})
+                                    (facts-for analyzer path content-key text measuring parse remember!))))))))))))
+
 (defn- working-tree-facts
-  "Resolves to the facts of each of `paths`, nil where unreadable,
-  reporting progress to `on-progress`."
+  "Resolves to the facts of each of `paths`, nil where unreadable. The
+  cache keeps only the facts this reading used."
   [analyzer configuration paths on-progress open-text parse]
   (let [total (count paths)
         done-count (atom 0)
         progress-interval 40
         parallel-reads 16
+        measuring (measuring-options configuration)
+        used (atom {})
+        remember! (fn [cache-key facts] (swap! used assoc cache-key facts))
         read-facts (fn [path]
-                     (task/then (working-text analyzer open-text path)
-                                (fn [text]
+                     (task/then (working-file-facts analyzer path measuring open-text parse remember!)
+                                (fn [facts]
                                   (let [finished (swap! done-count inc)]
                                     (when (and on-progress (zero? (mod finished progress-interval)))
                                       (on-progress {:done finished :total total})))
-                                  (when text
-                                    (facts-for analyzer path (files/content-key text) text
-                                               (measuring-options configuration) parse)))))]
-    (task/map-limited parallel-reads read-facts paths)))
+                                  facts)))]
+    (task/then (task/map-limited parallel-reads read-facts paths)
+               (fn [facts-list]
+                 (reset! (:working-facts analyzer) @used)
+                 (swap! (:stamps analyzer) select-keys paths)
+                 facts-list))))
+
+(defn- working-snapshot
+  "The working tree's snapshot of `facts`, the one built last when it read
+  the same files with the same configuration."
+  [analyzer configuration facts]
+  (let [inputs [configuration (mapv (juxt :path :content-key) facts)]
+        {built-inputs :inputs built :snapshot} @(:working-build analyzer)]
+    (if (= inputs built-inputs)
+      built
+      (let [snapshot-value (snapshot/build-snapshot facts {:id working-tree
+                                                           :label "Working tree"
+                                                           :time (js/Date.now)
+                                                           :weights (:weights configuration)
+                                                           :include-paths (:include-paths configuration)})]
+        (reset! (:working-build analyzer) {:inputs inputs :snapshot snapshot-value})
+        snapshot-value))))
 
 (defn analyze-working-tree
-  "Resolves to {:snapshot :notices} for the working tree. `on-progress`,
-  when given, receives {:done :total} while files are read, and
-  `open-text`, from a relative path to text or nil, gives the text of
-  files open with unsaved changes."
+  "Resolves to {:snapshot :notices}, the last reading's very snapshot when
+  nothing changed. `open-text` gives the text of files with unsaved
+  changes."
   [analyzer configuration {:keys [on-progress open-text]}]
   (task/then
    (working-tree-paths analyzer configuration)
@@ -203,35 +270,26 @@
           (task/then (working-tree-facts analyzer configuration analyzed-paths on-progress (or open-text (constantly nil))
                                          parse)
                      (fn [facts-list]
-                       {:snapshot (snapshot/build-snapshot (wanted-facts configuration facts-list)
-                                                           {:id working-tree
-                                                            :label "Working tree"
-                                                            :time (js/Date.now)
-                                                            :weights (:weights configuration)
-                                                            :include-paths (:include-paths configuration)})
+                       {:snapshot (working-snapshot analyzer configuration (wanted-facts configuration facts-list))
                         :notices (filterv some? [(limit-notice (- (count paths) (count analyzed-paths)))
                                                  (parser-notice error)])}))))))))
 
 (defn- commit-facts
   "Resolves to the facts of each of `entries`, {:path :blob}, from the
-  cache, or parsed from blobs read out of git in one batch."
+  caches, or parsed from blobs read out of git in one batch."
   [analyzer measuring entries parse]
   (let [{:keys [git-executable root-directory]} analyzer
         unparsed-blobs (into []
-                             (comp (remove #(cached-facts analyzer (:path %) (:blob %) measuring))
+                             (comp (remove #(cached-facts analyzer (facts-key (:path %) (:blob %) measuring)))
                                    (map :blob)
                                    (distinct))
-                             entries)]
+                             entries)
+        remember! (fn [cache-key facts] (remember-history-facts! analyzer cache-key facts))]
     (task/then (git/read-blobs git-executable root-directory unparsed-blobs)
                (fn [texts-by-blob]
                  (into []
                        (keep (fn [{:keys [path blob]}]
-                               (let [cached (cached-facts analyzer path blob measuring)]
-                                 (cond
-                                   (= ::skipped cached) nil
-                                   (some? cached) cached
-                                   :else (when-let [text (get texts-by-blob blob)]
-                                           (facts-for analyzer path blob text measuring parse))))))
+                               (facts-for analyzer path blob (get texts-by-blob blob) measuring parse remember!)))
                        entries)))))
 
 (defn analyze-commit
@@ -285,9 +343,12 @@
     (task/then
      (parser-for analyzer (map :path file-entries))
      (fn [{:keys [parse]}]
-       (let [source-file (fn [path content-key text]
+       (let [remember! (if (= working-tree (:id snapshot-value))
+                         (fn [cache-key facts] (swap! (:working-facts analyzer) assoc cache-key facts))
+                         (fn [cache-key facts] (remember-history-facts! analyzer cache-key facts)))
+             source-file (fn [path content-key text]
                            {:path path
-                            :language (:language (facts-for analyzer path content-key text measuring parse) :plain)
+                            :language (:language (facts-for analyzer path content-key text measuring parse remember!) :plain)
                             :text (source/normalize-text text)
                             :content-key content-key})]
          (if (= working-tree (:id snapshot-value))

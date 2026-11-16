@@ -4,10 +4,7 @@
   (:require [codecloud.languages.lexer :as lexer]
             [codecloud.languages.lexicons :as lexicons]))
 
-(defn- marked-continuation
-  "A line's placed tokens with the first one that is not space marked
-  :continues?."
-  [placed]
+(defn- marked-continuation [placed]
   (if-let [index (first (keep-indexed (fn [index token] (when-not (= :space (:kind token)) index)) placed))]
     (assoc-in placed [index :continues?] true)
     placed))
@@ -44,9 +41,7 @@
       (subs text 1 (dec (count text)))
       text)))
 
-(defn token-at
-  "The token at `index`, or nil past the end."
-  [tokens index]
+(defn token-at [tokens index]
   (when (< -1 index (count tokens)) (nth tokens index)))
 
 (defn token-is?

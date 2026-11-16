@@ -12,9 +12,21 @@
   "Definition kinds that count toward a namespace's function total."
   #{:function :macro :multimethod :protocol-method :definition})
 
+(def ^:private features-by-extension
+  "The feature sets a file of each extension is read with. A file shared
+  between platforms is read once for each, so requires and definitions
+  behind every #? branch are seen."
+  {"clj" [#{:clj}]
+   "cljs" [#{:cljs}]
+   "cljc" [#{:clj} #{:cljs}]
+   "cljd" [#{:cljd}]
+   "cljr" [#{:cljr}]
+   "bb" [#{:bb :clj}]})
+
 (defn- parse-options
-  "Edamame options that read source for `features` without evaluating it."
-  [features]
+  "Edamame options that read source for `features` without evaluating it,
+  recording the place of every form `located?` accepts."
+  [features located?]
   (edamame/normalize-opts
    {:all true
     :read-cond :allow
@@ -29,7 +41,7 @@
     ;; A syntax-quoted template keeps the shape it is written in, since its
     ;; expansion nests far deeper than the source does.
     :syntax-quote identity
-    :location? seq?}))
+    :location? located?}))
 
 (defn- error-description [error]
   (let [data (ex-data error)]
@@ -39,23 +51,23 @@
 
 (defn read-forms
   "{:forms :error} for normalized text read with `features`. Reading stops
-  at the first syntax error, keeping the forms before it."
-  [text features]
-  (let [options (parse-options features)
-        reader (edamame/reader text)]
-    (loop [forms (transient [])]
-      (let [outcome (try
-                      {:form (edamame/parse-next reader options)}
-                      (catch #?(:clj Exception :cljs :default) error
-                        {:error (error-description error)}))]
-        (cond
-          (:error outcome) {:forms (persistent! forms) :error (:error outcome)}
-          (= :edamame.core/eof (:form outcome)) {:forms (persistent! forms) :error nil}
-          :else (recur (conj! forms (:form outcome))))))))
+  at the first syntax error, keeping the forms before it. Lists carry
+  their place as metadata, and symbols too when `symbols-placed?`."
+  ([text features] (read-forms text features false))
+  ([text features symbols-placed?]
+   (let [options (parse-options features (if symbols-placed? #(or (seq? %) (symbol? %)) seq?))
+         reader (edamame/reader text)]
+     (loop [forms (transient [])]
+       (let [outcome (try
+                       {:form (edamame/parse-next reader options)}
+                       (catch #?(:clj Exception :cljs :default) error
+                         {:error (error-description error)}))]
+         (cond
+           (:error outcome) {:forms (persistent! forms) :error (:error outcome)}
+           (= :edamame.core/eof (:form outcome)) {:forms (persistent! forms) :error nil}
+           :else (recur (conj! forms (:form outcome)))))))))
 
-(defn- function-value?
-  "True when the value of a `def` is evidently a function."
-  [value-form]
+(defn- function-value? [value-form]
   (contains? #{"fn" "fn*" "partial" "comp" "complement" "juxt" "memoize"
                "constantly" "some-fn" "every-pred" "fnil"}
              (forms/head-name value-form)))
@@ -215,8 +227,8 @@
           forms))
 
 (defn- file-context
-  "What resolving a symbol needs: the namespace, aliases, refers, own
-  definitions, and whether :refer :all leaves names to guess."
+  "What resolving a symbol needs, which is the namespace, aliases, refers,
+  own definitions, and whether :refer :all leaves names to guess."
   [declaration requirements definitions]
   {:namespace-name (:name declaration)
    :aliases (ns-form/alias-table requirements)
@@ -335,16 +347,72 @@
    (let [normalized-text (source/normalize-text text)
          text-lines (source/split-lines normalized-text)
          extension (source/file-extension path)
-         ;; A file shared between platforms is read once for each, so
-         ;; requires and definitions behind every #? branch are seen.
-         features-by-extension {"clj" [#{:clj}]
-                                "cljs" [#{:cljs}]
-                                "cljc" [#{:clj} #{:cljs}]
-                                "cljd" [#{:cljd}]
-                                "cljr" [#{:cljr}]
-                                "bb" [#{:bb :clj}]}
          feature-sets (get features-by-extension extension [#{:clj}])
          measuring {:compiled-flags (complection/compile-flags flags)
                     :thresholds (complection/thresholds-with complection)}]
      (merge-passes path extension text-lines
                    (mapv #(facts-for-pass normalized-text text-lines % measuring) feature-sets)))))
+
+;; Uses of one var
+
+(defn- symbol-places
+  "{:line :column} of each symbol in `form` that `wanted?` accepts,
+  :comment? inside (comment ...). An unplaced symbol takes the place of
+  the nearest list around it."
+  [wanted? form nearest]
+  (letfn [(walk [found item in-comment? closest]
+            (cond
+              (symbol? item)
+              (let [{:keys [line column]} (or (forms/location item) closest)]
+                (if (and line (wanted? item))
+                  (conj found (cond-> {:line line :column column} in-comment? (assoc :comment? true)))
+                  found))
+
+              (coll? item)
+              (reduce #(walk %1 %2 (or in-comment? (forms/comment-form? item)) (or (forms/location item) closest))
+                      found
+                      (forms/children item))
+
+              :else found))]
+    (walk [] form false nearest)))
+
+(defn uses-of
+  "Where Clojure `text` uses the var `target-name` of `target-namespace`,
+  through aliases and refers, as one-based {:line :column}."
+  [path text target-namespace target-name]
+  (let [normalized-text (source/normalize-text text)
+        feature-sets (get features-by-extension (source/file-extension path) [#{:clj}])
+        qualified-target (str target-namespace "/" target-name)
+        places-in-pass
+        (fn [features]
+          (let [{:keys [forms]} (read-forms normalized-text features true)
+                declaration (some ns-form/namespace-declaration forms)
+                requirements (into (vec (:requirements declaration)) (mapcat ns-form/require-call-requirements forms))
+                context (file-context declaration requirements (into [] (mapcat definitions-of-form) forms))
+                of-target (filter #(= target-namespace (:target %)) requirements)
+                referred-all? (some :refer-all? of-target)
+                referred? (some #(contains? (:refers %) target-name) of-target)
+                names-target? (fn [symbol-value]
+                                (let [[category reference] (classify-symbol context symbol-value)]
+                                  (case category
+                                    :qualified (= qualified-target reference)
+                                    :local (and (= target-namespace (:namespace-name context)) (= target-name reference))
+                                    :unresolved (boolean (and referred-all? (= target-name reference)))
+                                    false)))
+                declares-target? (fn [symbol-value]
+                                   (and (nil? (namespace symbol-value)) (= target-name (name symbol-value))))]
+            (into []
+                  (mapcat (fn [form]
+                            (cond
+                              (not (requirement-form? form))
+                              (symbol-places names-target? (reference-scope form) (forms/location form))
+
+                              referred?
+                              (map #(assoc % :declaration? true) (symbol-places declares-target? form (forms/location form)))
+
+                              :else [])))
+                  forms)))]
+    (->> (mapcat places-in-pass feature-sets)
+         (collections/distinct-by (juxt :line :column))
+         (sort-by (juxt :line :column))
+         vec)))

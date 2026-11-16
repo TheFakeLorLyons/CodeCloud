@@ -50,7 +50,7 @@
     [:span.layer-ramp {:style {"--day-ramp" (gradient :day) "--night-ramp" (gradient :night)}}]))
 
 (defn preview
-  "A layer's colors in brief: its ramp for a heat layer, and a strip of its
+  "A layer's colors in brief, its ramp for a heat layer and a strip of its
   first colors otherwise."
   [{:keys [kind legend]} context]
   (when context

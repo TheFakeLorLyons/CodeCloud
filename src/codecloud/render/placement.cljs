@@ -37,10 +37,7 @@
       wall-positions wall-positions
       :else {})))
 
-(defn- page-positions
-  "`layout-positions` with every page of a row of paired pages at its
-  row's place."
-  [app]
+(defn- page-positions [app]
   (let [positions (layout-positions app)]
     (into positions
           (keep (fn [[id root]] (when-let [position (get positions root)] [id position])))

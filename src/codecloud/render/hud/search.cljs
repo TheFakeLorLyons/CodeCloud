@@ -2,6 +2,7 @@
   "Finding a page by name. Matches come forward in the cloud, and the
   most important are listed for the arrow keys."
   (:require [clojure.string :as string]
+            [codecloud.counting :as counting]
             [codecloud.presentation.scene :as scene]
             [codecloud.presentation.ui-state :as ui-state]
             [codecloud.presentation.wording :as wording]
@@ -18,23 +19,28 @@
                              :on-mousedown (fn [^js event] (.preventDefault event))
                              :on-click #(dispatch [:search-pick namespace-id])}
       [:span.search-option-name (words/name-heading (scene/label-parts node))]
-      [:span.search-option-detail (words/counted (get-in node [:metrics :lines]) "line" "lines")]]]))
+      [:span.search-option-detail (counting/counted (get-in node [:metrics :lines]) "line" "lines")]]]))
 
 (defn- result-summary [query match-count listed-count]
   (cond
     (string/blank? query) ""
     (zero? match-count) "No matches"
-    :else (str (words/counted match-count "match" "matches")
+    :else (str (counting/counted match-count "match" "matches")
                (when (> match-count listed-count) (str ", top " listed-count " shown")))))
 
-(defn- on-key-down [dispatch ^js event]
-  (case (.-key event)
-    "Enter" (dispatch [:search-submit])
-    "ArrowDown" (do (.preventDefault event) (dispatch [:search-move 1]))
-    "ArrowUp" (do (.preventDefault event) (dispatch [:search-move -1]))
-    "Escape" (do (.preventDefault event) (dispatch [:close-search]))
-    nil)
-  (.stopPropagation event))
+(defn- on-key-down
+  "Answers the keys that move through the results, keeping them from the
+  cloud and VS Code, whose keybindings get the rest."
+  [dispatch ^js event]
+  (when-let [event-to-send (case (.-key event)
+                             "Enter" [:search-submit]
+                             "ArrowDown" [:search-move 1]
+                             "ArrowUp" [:search-move -1]
+                             "Escape" [:close-search]
+                             nil)]
+    (.preventDefault event)
+    (.stopPropagation event)
+    (dispatch event-to-send)))
 
 (def panel
   {:id :search

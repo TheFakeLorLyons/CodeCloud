@@ -1,7 +1,12 @@
 (ns codecloud.render.hud.messages
-  "Reading progress, dismissable notices, and the empty cloud's message."
+  "Reading progress, a chord waiting for its second key, dismissable
+  notices, and the empty cloud's message."
   (:require [codecloud.render.dom :as dom]
             [codecloud.render.icons :as icons]))
+
+(defn- chord-status [first-key]
+  {:message (str first-key " pressed. Enter loads/evaluates current file, Shift+Enter loads/evaluates it and its "
+                 "requires/dependencies, and Ctrl+Alt+D interrupts the evaluations.")})
 
 (def status-panel
   {:id :status
@@ -9,11 +14,13 @@
             {:root (dom/element [:div.hud-status {:role "status"}
                                  [:span.status-message ""]
                                  [:span.status-bar [:span.status-fill]]])})
-   :update (fn [{:keys [root]} {:keys [status]}]
-             (dom/toggle-class! root "is-open" (some? status))
-             (dom/set-text! (dom/find-in root ".status-message") (or (:message status) ""))
-             (let [^js fill (dom/find-in root ".status-fill")]
-               (set! (.. fill -style -width) (str (* 100 (or (:progress status) 0)) "%"))))})
+   :update (fn [{:keys [root]} {:keys [status chord]}]
+             (let [shown (or status (some-> chord chord-status))]
+               (dom/toggle-class! root "is-open" (some? shown))
+               (dom/set-text! (dom/find-in root ".status-message") (or (:message shown) ""))
+               (dom/toggle-class! (dom/find-in root ".status-bar") "is-hidden" (nil? status))
+               (let [^js fill (dom/find-in root ".status-fill")]
+                 (set! (.. fill -style -width) (str (* 100 (or (:progress shown) 0)) "%")))))})
 
 (def notices-panel
   {:id :notices

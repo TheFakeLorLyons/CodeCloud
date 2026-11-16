@@ -54,11 +54,16 @@
   "--alias:three=./node_modules/three/build/three.module.js")
 
 (def ^:private bundle-arguments
-  "esbuild arguments that turn each compiled build into one file. Only the
-  browser builds pull in an npm package, three.js, and the Node builds are
-  bundled too so every build ships as one file."
+  "esbuild arguments that turn each compiled build into one file, and
+  wavescope-mcp, which the extension runs as a child process, into one ES
+  module. Only the browser builds pull in an npm package, three.js, and
+  the Node builds are bundled too so every build ships as one file. The
+  wavescope bundle leaves a record of its inputs, from which its license
+  notices name every package inside."
   {:extension ["out/extension/main.js" "--platform=node" "--format=cjs" "--target=node18"
                "--external:vscode" "--outfile=dist/extension.js"]
+   :wavescope ["node_modules/wavescope-mcp/dist/index.js" "--platform=node" "--format=esm" "--target=node18"
+               "--minify" "--metafile=out/wavescope-inputs.json" "--outfile=dist/wavescope.mjs"]
    :webview ["out/webview/main.js" "--platform=browser" "--format=iife" "--target=chrome120"
              three-module "--minify" "--outfile=dist/webview.js"]
    :harness ["out/harness/main.js" "--platform=browser" "--format=iife" "--target=chrome120"
@@ -109,15 +114,78 @@
   (doseq [[from to] parser-files]
     (io/copy (io/file from) (io/file to))))
 
+;; wavescope's license notices
+
+(def ^:private isc-terms
+  "The ISC license's terms, for a bundled package whose package.json
+  declares ISC but which ships no license file."
+  (str "Permission to use, copy, modify, and/or distribute this software for any purpose with or "
+       "without fee is hereby granted, provided that the above copyright notice and this permission "
+       "notice appear in all copies.\n\n"
+       "THE SOFTWARE IS PROVIDED \"AS IS\" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS "
+       "SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE "
+       "AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES "
+       "WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, "
+       "NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE "
+       "OF THIS SOFTWARE."))
+
+(defn- bundled-packages
+  "Names of the npm packages in esbuild's record of a bundle's inputs,
+  sorted."
+  [inputs-record]
+  (->> (re-seq #"node_modules/((?:@[^/\"]+/)?[^/\"]+)/" inputs-record)
+       (map second)
+       distinct
+       sort))
+
+(defn- package-field
+  "A string field of a package.json's text."
+  [package-json field]
+  (second (re-find (re-pattern (str "\"" field "\"\\s*:\\s*\"([^\"]*)\"")) package-json)))
+
+(defn- package-notice
+  "One bundled package's name, version, and license, with its license
+  file's text."
+  [package-name]
+  (let [directory (io/file "node_modules" package-name)
+        package-json (slurp (io/file directory "package.json"))
+        license (package-field package-json "license")
+        license-file (some #(let [^java.io.File candidate (io/file directory %)] (when (.isFile candidate) candidate))
+                           ["LICENSE" "LICENSE.md" "LICENSE.txt" "LICENCE" "license" "license.md"])]
+    (str package-name " " (package-field package-json "version") ", " license " license\n\n"
+         (cond
+           license-file (string/trim (slurp license-file))
+           (= "ISC" license) (str "The package declares the ISC license in its package.json and ships no "
+                                  "license file; these are the ISC license's terms.\n\n" isc-terms)
+           :else "The package ships no license file.")
+         "\n")))
+
+(defn- write-wavescope-notices!
+  "Writes the license notices of every package in dist/wavescope.mjs
+  beside it."
+  []
+  (let [rule-width 72
+        separator (str "\n" (apply str (repeat rule-width "-")) "\n\n")]
+    (spit "dist/wavescope-LICENSES.txt"
+          (str "dist/wavescope.mjs bundles these packages; CodeCloud runs it as a child process.\n\n"
+               (string/join separator (map package-notice (bundled-packages (slurp "out/wavescope-inputs.json"))))))))
+
+(defn- bundle-wavescope! []
+  (bundle! :wavescope)
+  (write-wavescope-notices!))
+
 (defn- build-and-bundle! [build-key]
   (compile-build! build-key)
   (bundle! build-key)
   (when (contains? #{:extension :cli} build-key)
-    (copy-parsers!)))
+    (copy-parsers!))
+  (when (= :extension build-key)
+    (bundle-wavescope!)))
 
 (defn- run-tests! []
   (compile-build! :test)
   (copy-parsers!)
+  (bundle-wavescope!)
   (log "Running tests")
   (run-command! "node" "out/test/main.js"))
 

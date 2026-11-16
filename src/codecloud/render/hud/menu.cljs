@@ -9,30 +9,36 @@
             [codecloud.render.dom :as dom]
             [codecloud.render.hud.words :as words]))
 
-(defn- page-items [{:keys [snapshot focused-id moved-pages]} namespace-id]
+(defn- working-tree? [{:keys [snapshot]}]
+  (= :working-tree (:id snapshot)))
+
+(defn- page-items [{:keys [snapshot focused-id moved-pages] :as state} namespace-id]
   (let [node (get-in snapshot [:namespaces namespace-id])
         directory (page/directory node)]
     {:heading (scene/label-parts node)
      :items (cond-> [[(if (= namespace-id focused-id) "Set it back" "Bring it closer") [:click-namespace namespace-id]]
                      ["Fly to it" [:double-click-namespace namespace-id]]]
               (contains? moved-pages namespace-id) (conj ["Put it back" [:put-back namespace-id]])
-              true (into [["Open in the editor" [:dive {:path (:path (page/primary-file node)) :line 1}]]
-                          ["Show only it and its neighbors" [:show-only (visibility/neighborhood-patterns snapshot namespace-id)]]
+              true (into [["Open in the editor" [:dive {:path (:path (page/primary-file node)) :line 1}]]])
+              (working-tree? state) (conj ["New file beside it" [:new-file directory]])
+              true (into [["Show only it and its neighbors" [:show-only (visibility/neighborhood-patterns snapshot namespace-id)]]
                           ["Hide it" [:hide-page namespace-id]]
                           ["Hide its folder" [:hide-folder directory]]]))}))
 
-(defn- folder-items [{:keys [lifted-folder cloud-name]} path]
+(defn- folder-items [{:keys [lifted-folder cloud-name] :as state} path]
   {:heading (scene/directory-label path cloud-name)
-   :items [[(if (= path lifted-folder) "Set it back" "Bring it closer") [:click-folder path]]
-           ["Fly to it" [:frame-directory path]]
-           ["Show only this folder" [:show-only [(selection/directory-pattern path)]]]
-           ["Hide this folder" [:hide-folder path]]]})
+   :items (cond-> [[(if (= path lifted-folder) "Set it back" "Bring it closer") [:click-folder path]]
+                   ["Fly to it" [:frame-directory path]]]
+            (working-tree? state) (conj ["New file in this folder" [:new-file path]])
+            true (into [["Show only this folder" [:show-only [(selection/directory-pattern path)]]]
+                        ["Hide this folder" [:hide-folder path]]]))})
 
-(defn- sky-items [{:keys [view-filter moved-pages]}]
+(defn- sky-items [{:keys [view-filter moved-pages] :as state}]
   {:heading nil
    :items (cond-> [["Show the whole cloud" [:frame-all]]]
             (visibility/filtering? view-filter) (conj ["Show everything" [:clear-filter]])
             (seq moved-pages) (conj ["Put every page back" [:put-everything-back]])
+            (working-tree? state) (conj ["New file" [:new-file ""]])
             true (conj ["Arrange" [:toggle-arrange-panel]]
                        ["Views" [:toggle-views-panel]]))})
 

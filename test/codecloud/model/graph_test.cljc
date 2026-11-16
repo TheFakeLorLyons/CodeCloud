@@ -109,6 +109,12 @@
                                     {:functions 0 :references 1 :lines 0})]
       (is (= 1.0 (double (get scores "used"))))
       (is (zero? (get scores "long")))))
+  (testing "a weight may count any measurement"
+    (let [scores (importance/scores {"shared" {:functions 1 :dependents 9}
+                                     "leaf" {:functions 9 :dependents 0}}
+                                    {:dependents 1})]
+      (is (= 1.0 (double (get scores "shared"))))
+      (is (zero? (get scores "leaf")))))
   (testing "all weights zero gives every namespace zero"
     (is (= {"only" 0} (importance/scores {"only" {:functions 3 :references 2 :lines 9}}
                                          {:functions 0 :references 0 :lines 0})))))

@@ -15,7 +15,7 @@
         [:path {:d "M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"}]))
 
 (def twilight
-  (icon [:path {:d "M6.5 15a5.5 5.5 0 0 1 11 0"}]
+  (icon [:path {:d "M6.5 15A5.5 5.5 0 0 1 17.5 15"}]
         [:path {:d "M3 15h18M7 19h10M12 4.5v2.2M4.8 7.8l1.5 1.5M19.2 7.8l-1.5 1.5"}]))
 
 (def moon
@@ -28,6 +28,20 @@
 (def clock
   (icon [:circle {:cx 12 :cy 12 :r 8.5}]
         [:path {:d "M12 7.5V12l3 2"}]))
+
+(def simple
+  (icon [:rect {:x 4 :y 5 :width 16 :height 14 :rx 2.5}]
+        [:path {:d "M4 13.5h16"}]))
+
+(def backrooms
+  (icon [:path {:d "M3 4.5h18M3 19.5h18M3 4.5l5.5 5h7l5.5-5M3 19.5l5.5-5h7l5.5 5M8.5 9.5v5M15.5 9.5v5M10.5 7h3"}]))
+
+(def space
+  (icon [:path {:d "M12 3.5l7.5 4.2v8.6L12 20.5l-7.5-4.2V7.7z"}]
+        [:path {:d "M4.5 7.7L12 12l7.5-4.3M12 12v8.5"}]))
+
+(def check
+  (icon [:path {:d "M5 12.5l4.5 4.5L19 7.5"}]))
 
 (def frame-all
   (icon [:path {:d "M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"}]))
@@ -53,6 +67,11 @@
 
 (def step-forward
   (icon [:path {:d "M9 6l6 6-6 6"}]))
+
+(def new-file
+  (icon [:path {:d "M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"}]
+        [:path {:d "M13.5 3.5V9H19"}]
+        [:path {:d "M12 12.5v5M9.5 15h5"}]))
 
 (def views
   (icon [:path {:d "M12 3.5l8.5 4.25L12 12 3.5 7.75z"}]
@@ -86,6 +105,26 @@
 (def disclosure
   (icon [:path {:d "M9.5 7l5 5-5 5"}]))
 
+(def agents
+  (icon [:circle {:cx 9 :cy 8.5 :r 3.2}]
+        [:path {:d "M3 19.5a6 6 0 0 1 12 0"}]
+        [:path {:d "M15.5 5.5a3.2 3.2 0 0 1 0 6M17 14.3a5.5 5.5 0 0 1 3.5 5.2"}]))
+
+(def plus
+  (icon [:path {:d "M12 5v14M5 12h14"}]))
+
+(def pin
+  (icon [:path {:d "M12 21s-6-5.6-6-10.5a6 6 0 0 1 12 0C18 15.4 12 21 12 21z"}]
+        [:circle {:cx 12 :cy 10.5 :r 2.2}]))
+
+(def follow
+  (icon [:circle {:cx 12 :cy 12 :r 3}]
+        [:path {:d "M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"}]))
+
+(def load-requires
+  (icon [:path {:d "M4 7.5h9M4 12h6M4 16.5h4"}]
+        [:path {:d "M17 6.5v10.5M13.8 13.8L17 17l3.2-3.2"}]))
+
 (def repl
   (icon [:rect {:x 3 :y 4.5 :width 18 :height 15 :rx 2.5}]
         [:path {:d "M7 9.5l3 2.5-3 2.5M12.5 15h4.5"}]))
@@ -99,5 +138,16 @@
         [:rect {:x 9 :y 9 :width 6 :height 6 :rx 1 :fill "currentColor" :stroke "none"}]))
 
 (def clear-log
-  (icon [:path {:d "M4 6.5h16M4 11.5h9M4 16.5h6"}]
+  (icon [:path {:d "M4 6.5h16m-16 5h9m-9 5h6"}]
         [:path {:d "M15.5 14.5l4 4M19.5 14.5l-4 4"}]))
+
+(def assistant
+  (icon [:path {:d "M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-8.5L6 20v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5z"}]
+        [:path {:d "M12 7.3l1 2.4 2.4 1-2.4 1-1 2.4-1-2.4-2.4-1 2.4-1z" :fill "currentColor" :stroke-width 1}]))
+
+(def new-conversation
+  (icon [:path {:d "M10.5 5H6a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V14"}]
+        [:path {:d "M17.5 3.8l2.7 2.7-7.4 7.4-3.4.7.7-3.4z"}]))
+
+(def send
+  (icon [:path {:d "M12 19V5.5M6.5 10.5L12 5l5.5 5.5"}]))

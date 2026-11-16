@@ -24,18 +24,16 @@
      :edges (count edges)}))
 
 (defn inbound-references
-  "Uses of page `id` through the `incoming` edges from other pages: each
-  use of one of its names, plus one for each page that loads it."
+  "Uses of page `id` through the `incoming` edges from other pages, each
+  use of one of its names counting, plus one for each page that loads it."
   [id incoming]
   (let [from-elsewhere (remove #(= id (:from %)) incoming)]
     (+ (reduce + 0 (map :reference-count from-elsewhere))
        (count (remove #(= :implicit (:kind %)) from-elsewhere)))))
 
 (defn- restricted-node
-  "`node` among the shown pages: requires, dependents, uses, and
-  measurements counted among them, with how many neighbors are hidden.
-  `incoming` and `outgoing` hold the shown edges that reach and leave it,
-  and `members` the nodes folded into it, itself among them."
+  "`node` among the shown pages, its requires, uses, and measurements
+  counted among them, with how many neighbors are hidden."
   [{:keys [id] :as node} {:keys [incoming outgoing members shown?]}]
   (let [shown-requires (vec (sort (distinct (map :to outgoing))))
         shown-required-by (vec (sort (distinct (keep #(when (not= id (:from %)) (:from %)) incoming))))
@@ -56,9 +54,9 @@
                                (mapv #(assoc % :inbound-count (get uses (:name %) 0)) definitions))))))
 
 (defn- folded-edge
-  "One edge for `edges`, which join the same two pages once folded: the
-  first that loads its target, or else the first, with the uses,
-  references, and marks of all of them."
+  "One edge for `edges`, which join the same two pages once folded, taken
+  from the first that loads its target, or else the first, and carrying
+  the uses, references, and marks of all of them."
   [[first-edge :as edges]]
   (if (next edges)
     (cond-> (assoc (or (first (remove #(= :implicit (:kind %)) edges)) first-edge)
@@ -88,13 +86,9 @@
          (mapv (comp folded-edge val)))))
 
 (defn restrict
-  "The snapshot as if only the pages in `visible-ids` existed: requires,
-  uses, measurements, importance, and totals counted among them, and each
-  page's :hidden-requires and :hidden-required-by. Each page in
-  `stand-ins`, a map from a hidden page's id to another page's, folds into
-  that page, its edges running there instead. Cycles stay the whole
-  codebase's, kept while any member shows. With nothing hidden, the
-  snapshot itself."
+  "The snapshot as if only `visible-ids` existed, each page counting its
+  hidden neighbors. Hidden pages `stand-ins` names fold into shown ones;
+  cycles stay the whole codebase's."
   ([snapshot visible-ids] (restrict snapshot visible-ids {}))
   ([snapshot visible-ids stand-ins]
    (if (and (empty? stand-ins) (every? #(contains? visible-ids %) (keys (:namespaces snapshot))))
