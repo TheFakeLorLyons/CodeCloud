@@ -222,7 +222,7 @@
 
 (def plain-fragment
   "The plain backdrop, a gradient from horizon to zenith in the sky's day
-  or night colors."
+  or night colors, or in colors of a person's choosing."
   "uniform mat4 inverseProjection;
    uniform mat4 cameraWorld;
    uniform float night;
@@ -230,6 +230,9 @@
    uniform vec3 dayHorizon;
    uniform vec3 nightZenith;
    uniform vec3 nightHorizon;
+   uniform float chosen;
+   uniform vec3 chosenZenith;
+   uniform vec3 chosenHorizon;
    varying vec2 screenPosition;
    void main() {
      vec4 viewRay = inverseProjection * vec4(screenPosition, 1.0, 1.0);
@@ -237,12 +240,16 @@
      float rise = smoothstep(-0.6, 0.9, direction.y);
      vec3 dayColor = mix(dayHorizon, dayZenith, rise);
      vec3 nightColor = mix(nightHorizon, nightZenith, rise);
-     gl_FragColor = vec4(mix(dayColor, nightColor, night), 1.0);
+     vec3 themeColor = mix(dayColor, nightColor, night);
+     vec3 chosenColor = mix(chosenHorizon, chosenZenith, rise);
+     gl_FragColor = vec4(mix(themeColor, chosenColor, chosen), 1.0);
    }")
 
 (def room-fragment
   "A room or a maze of rooms around an eye 1.5 meters above the floor,
-  walked cell by cell until a wall stops the view. Patterns follow
+  walked cell by cell until a wall stops the view. A maze's walls are
+  boxes 16 centimeters thick, with a post wherever walls meet, so a wall
+  seen end on shows its end. Patterns follow
   codecloud.presentation.environments/patterns and even out where finer
   than a pixel."
   (str
@@ -275,6 +282,8 @@
     const float cellSize = 4.0;
     const float roomHalf = 4.0;
     const float lampSpacing = 2.4;
+    const float wallHalf = 0.08;
+    const float missed = 1.0e6;
 
     float evened(float blur) {
       return smoothstep(0.2, 0.6, blur);
@@ -353,6 +362,62 @@
       return step(hash12(edge * 1.37 + vec2(across * 19.1, across * 7.3)), 0.42);
     }
 
+    bool postAt(vec2 corner) {
+      return wallOnEdge(corner, 0.0) > 0.5 || wallOnEdge(corner - vec2(0.0, 1.0), 0.0) > 0.5
+          || wallOnEdge(corner, 1.0) > 0.5 || wallOnEdge(corner - vec2(1.0, 0.0), 1.0) > 0.5;
+    }
+
+    // How far along the floor plan a ray from origin goes before entering
+    // the box from low to high, and the face it enters by, 0 across x and
+    // 1 across z, or a distance of missed.
+    vec2 boxEntry(vec2 origin, vec2 inverse, vec2 low, vec2 high) {
+      vec2 toLow = (low - origin) * inverse;
+      vec2 toHigh = (high - origin) * inverse;
+      vec2 nearSide = min(toLow, toHigh);
+      vec2 farSide = max(toLow, toHigh);
+      float enter = max(nearSide.x, nearSide.y);
+      if (enter > min(farSide.x, farSide.y) || enter < 0.0) {
+        return vec2(missed, 0.0);
+      }
+      return vec2(enter, nearSide.x > nearSide.y ? 0.0 : 1.0);
+    }
+
+    vec2 nearer(vec2 found, vec2 candidate) {
+      return candidate.x < found.x ? candidate : found;
+    }
+
+    // The first wall or post of a cell's sides and corners the ray enters.
+    // A wall on the edge x = i spans the cells at z from j to j + 1, and
+    // one on the edge z = j the cells at x from i to i + 1.
+    vec2 cellWalls(vec2 cell, vec2 origin, vec2 inverse) {
+      vec2 low = cell * cellSize;
+      vec2 high = low + cellSize;
+      vec2 found = vec2(missed, 0.0);
+      if (wallOnEdge(cell, 0.0) > 0.5) {
+        found = nearer(found, boxEntry(origin, inverse, vec2(low.x - wallHalf, low.y + wallHalf),
+                                       vec2(low.x + wallHalf, high.y - wallHalf)));
+      }
+      if (wallOnEdge(cell + vec2(1.0, 0.0), 0.0) > 0.5) {
+        found = nearer(found, boxEntry(origin, inverse, vec2(high.x - wallHalf, low.y + wallHalf),
+                                       vec2(high.x + wallHalf, high.y - wallHalf)));
+      }
+      if (wallOnEdge(cell, 1.0) > 0.5) {
+        found = nearer(found, boxEntry(origin, inverse, vec2(low.x + wallHalf, low.y - wallHalf),
+                                       vec2(high.x - wallHalf, low.y + wallHalf)));
+      }
+      if (wallOnEdge(cell + vec2(0.0, 1.0), 1.0) > 0.5) {
+        found = nearer(found, boxEntry(origin, inverse, vec2(low.x + wallHalf, high.y - wallHalf),
+                                       vec2(high.x - wallHalf, high.y + wallHalf)));
+      }
+      for (int corner = 0; corner < 4; corner++) {
+        vec2 point = cell + vec2(mod(float(corner), 2.0), floor(float(corner) / 2.0));
+        if (postAt(point)) {
+          found = nearer(found, boxEntry(origin, inverse, point * cellSize - wallHalf, point * cellSize + wallHalf));
+        }
+      }
+      return found;
+    }
+
     void main() {
       vec4 viewRay = inverseProjection * vec4(screenPosition, 1.0, 1.0);
       vec3 direction = normalize((cameraWorld * vec4(viewRay.xyz / viewRay.w, 0.0)).xyz);
@@ -384,24 +449,20 @@
         vec2 stepSign = vec2(across.x >= 0.0 ? 1.0 : -1.0, across.y >= 0.0 ? 1.0 : -1.0);
         vec2 crossing = cellSize / safeAcross;
         vec2 nextCrossing = 0.5 * cellSize / safeAcross;
+        vec2 inverse = 1.0 / (stepSign * safeAcross);
         for (int walk = 0; walk < 28; walk++) {
+          vec2 found = cellWalls(cell, eye.xz, inverse);
+          if (found.x < hitDistance) {
+            hitDistance = found.x;
+            kind = 2.0 + found.y;
+          }
           if (min(nextCrossing.x, nextCrossing.y) >= hitDistance) {
             break;
           }
           if (nextCrossing.x < nextCrossing.y) {
-            if (wallOnEdge(vec2(cell.x + max(stepSign.x, 0.0), cell.y), 0.0) > 0.5) {
-              hitDistance = nextCrossing.x;
-              kind = 2.0;
-              break;
-            }
             cell.x += stepSign.x;
             nextCrossing.x += crossing.x;
           } else {
-            if (wallOnEdge(vec2(cell.x, cell.y + max(stepSign.y, 0.0)), 1.0) > 0.5) {
-              hitDistance = nextCrossing.y;
-              kind = 3.0;
-              break;
-            }
             cell.y += stepSign.y;
             nextCrossing.y += crossing.y;
           }

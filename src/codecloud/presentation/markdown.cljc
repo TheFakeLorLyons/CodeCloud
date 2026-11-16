@@ -258,13 +258,14 @@
       (conj nodes (subs text from)))))
 
 (defn- plain
-  "Hiccup for plain `text`, each line break kept."
+  "Hiccup for plain `text`, each line break kept, or in a :document? read
+  as a space, as Markdown files are written."
   [text options]
   (if (empty? text)
     []
     (->> (string/split text #"\n" -1)
          (map #(referenced % options))
-         (interpose [[:br]])
+         (interpose (if (:document? options) [" "] [[:br]]))
          (apply concat)
          vec)))
 
@@ -356,11 +357,24 @@
         (let [tag (case marker ("**" "__") :strong ("*" "_") :em "~~" :del)]
           [(into [tag] (inline (subs text start close) options)) (+ close (count marker))])))))
 
+(defn- image
+  "[node end] for an image, ![words](address), at `position`, drawn from
+  where :image-source in `options` puts the address, or its words when
+  that gives nowhere. Without :image-source, nothing is an image."
+  [text position {:keys [image-source]}]
+  (when (and image-source (= "[" (str (get text (inc position)))))
+    (when-let [[matched words address] (re-find link-pattern (subs text (inc position)))]
+      [(if-let [source (image-source address)]
+         [:img {:src source :alt words :loading "lazy"}]
+         words)
+       (+ position 1 (count matched))])))
+
 (defn- mark-at
   "[node end] for the inline mark at `position`, or nil when none begins
   there."
   [text position options]
   (case (str (get text position))
+    "!" (image text position options)
     "\\" (let [following (get text (inc position))]
            (when (and following (re-matches #"[!-/:-@\[-`{-~]" (str following)))
              [(str following) (+ position 2)]))
@@ -396,7 +410,11 @@
 
 (defn- block-hiccup [{:keys [kind] :as block} options]
   (case kind
-    :heading (into [(if (<= (:level block) 2) :h3.md-heading :h4.md-heading)] (inline (:text block) options))
+    :heading (into [(cond
+                      (:document? options) (keyword (str "h" (min 4 (:level block)) ".md-heading"))
+                      (<= (:level block) 2) :h3.md-heading
+                      :else :h4.md-heading)]
+                   (inline (:text block) options))
     :paragraph (into [:p] (inline (:text block) options))
     :code [:pre.md-code (if (:language block) {:data-language (:language block)} {}) [:code (:text block)]]
     :rule [:hr]
@@ -416,6 +434,7 @@
 (defn hiccup
   "Hiccup for Markdown `text`. With :place-for and :place-link in
   `options`, references such as src/core.clj:12 become links; without
-  them they stay text."
+  them they stay text. A :document? keeps headings at their levels, and
+  :image-source turns image marks into images."
   [text options]
   (mapv #(block-hiccup % options) (read-blocks text)))

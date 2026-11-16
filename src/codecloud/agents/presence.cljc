@@ -30,10 +30,6 @@
   the reds that mark cycles and errors."
   [235 150 290 45 190 330 100 265])
 
-(def ^:private most-kept
-  "Reads and changes kept for each agent."
-  24)
-
 (defn file-name
   "The last part of a path, with either kind of slash."
   [path]
@@ -70,8 +66,12 @@
                         :touches {}}
                        known)))))
 
-(defn- kept [entries now lifetime]
-  (into [] (take-last most-kept (filter #(< (- now (:at %)) lifetime) entries))))
+(defn- kept
+  "The latest of `entries` younger than `lifetime`, as many as an agent
+  keeps of its reads or its changes."
+  [entries now lifetime]
+  (let [most-kept 24]
+    (into [] (take-last most-kept (filter #(< (- now (:at %)) lifetime) entries)))))
 
 (defn read-by
   "The presence after `agent` read lines `start` to `end`, one-based, of

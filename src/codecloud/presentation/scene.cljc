@@ -196,6 +196,17 @@
                 (transient visuals)
                 visuals))))
 
+(defn pinned-shapes
+  "`visuals` with each page of `pinned-ids` in one column, as an editor
+  shows a file, while the grid holds it."
+  [visuals pinned-ids character-width]
+  (reduce (fn [result id]
+            (if-let [{:keys [files] :as visual} (get result id)]
+              (assoc result id (assoc visual :geometry (page/geometry files character-width 1) :pinned? true))
+              result))
+          visuals
+          pinned-ids))
+
 (defn directory-label
   "{:prefix :leaf} naming a folder, with the root folder named after the
   cloud itself."

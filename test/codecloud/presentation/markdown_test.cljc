@@ -92,3 +92,17 @@
             [:tbody [:tr [:td {:style {"text-align" "left"}} [:code "plant"]] [:td {} "6"]]]]]]
          (markdown/hiccup "| Name | Line |\n|:--|--|\n| `plant` | 6 |" options)))
   (is (= [[:blockquote [:p "quoted"]] [:hr]] (markdown/hiccup "> quoted\n\n***" options))))
+
+(deftest documents-keep-their-headings-and-pictures
+  (let [read (markdown/hiccup "# Title\n\nOne line\nand the next.\n\n![A plot](plots/one.png)\n\n#### Small"
+                              {:document? true :image-source #(str "base/" %)})]
+    (is (= [:h1.md-heading "Title"] (first read)))
+    (is (= [:p "One line and the next."] (second read)) "a line break inside a paragraph reads as a space")
+    (is (= [:p [:img {:src "base/plots/one.png" :alt "A plot" :loading "lazy"}]] (nth read 2)))
+    (is (= [:h4.md-heading "Small"] (nth read 3))))
+  (testing "without an image source an image mark is no image, as in the assistant's answers"
+    (is (= [:p "!" [:span {:title "plots/one.png"} "A plot"]] (first (markdown/hiccup "![A plot](plots/one.png)" {})))))
+  (testing "an image source that finds nothing leaves the picture's words"
+    (is (= [:p "A plot"] (first (markdown/hiccup "![A plot](missing.png)" {:document? true :image-source (fn [_] nil)})))))
+  (testing "the assistant's headings stay small"
+    (is (= :h3.md-heading (ffirst (markdown/hiccup "# Title" {}))))))

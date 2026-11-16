@@ -1,19 +1,23 @@
 (ns codecloud.render.harness-main
   "The browser harness, standing in for VS Code. It loads a bundle from
   `node dist/cli.js bundle` and acts out the host's answers, a REPL,
-  shells, agents, formatting, and the assistant. Query parameters set
+  shells, agents, formatting, the assistant, and what the cloud leaves
+  out. Query parameters set
   what the extension would, such as data, theme, sky, spaces, and
   arrange, and scripts drive the view through window.codecloudDispatch
   and codecloudDeliver and read it through codecloudStateAt,
   codecloudScreenOf, codecloudPointOf, and codecloudFlying."
   (:require [cljs.reader :as reader]
             [clojure.string :as string]
+            [codecloud.model.ignored :as ignored]
+            [codecloud.model.metrics :as metrics]
             [codecloud.model.new-file :as new-file]
             [codecloud.presentation.clojure-format :as clojure-format]
             [codecloud.presentation.code-colors :as code-colors]
             [codecloud.presentation.editing-state :as editing-state]
             [codecloud.presentation.environments :as environments]
             [codecloud.presentation.forms-state :as forms-state]
+            [codecloud.presentation.page-commands :as page-commands]
             [codecloud.presentation.ui-state :as ui-state]
             [codecloud.render.app :as app]
             [codecloud.render.backdrop :as backdrop]
@@ -78,11 +82,23 @@
     "floor" {"color" "#6d5a45" "pattern" "checks" "patternColor" "#5b4a39"}
     "ceiling" {"color" "#f1f7ef" "pattern" "grid" "patternColor" "#c3d6bf"}
     "lamps" "#fffbe8" "haze" "#cfe0c8"}
-   {"name" "Night library" "layout" "maze" "light" "night"
-    "walls" {"color" "#3a2a22" "pattern" "stripes" "patternColor" "#2e221a"}
-    "floor" {"color" "#5a1f24" "pattern" "carpet" "patternColor" "#47181c"}
-    "ceiling" {"color" "#2b2420" "pattern" "tiles" "patternColor" "#221c19"}
-    "lamps" "#ffd9a0" "haze" "#140f0c"}])
+   {"name" "Gallery" "layout" "maze" "light" "day"
+    "walls" {"color" "#f4f2ee" "pattern" "plain"}
+    "floor" {"color" "#b9a58a" "pattern" "tiles" "patternColor" "#a48f74" "patternScale" 2}
+    "ceiling" {"color" "#fbfaf7" "pattern" "grid" "patternColor" "#e2ded6"}
+    "lamps" "#ffffff" "haze" "#e8e4dc"}])
+
+(def ^:private demo-page-commands
+  "Commands for every page's right-click menu, written as the
+  codecloud.pageCommands setting holds them, for trying page commands
+  with the commands parameter set to demo."
+  (into []
+        (keep page-commands/from-setting)
+        [{"title" "Clay: show this file"
+          "command" "calva.runCustomREPLCommand"
+          "args" {"snippet" "(scicloj.clay.v2.api/make! {:source-path \"$file\"})"}
+          "window" "8765/test-resources/windows/page.html"}
+         {"title" "Note the place" "shell" "echo ${relativeFile}:${line}"}]))
 
 (defn- init-message
   "The settings and preferences the extension would send first, from the
@@ -91,9 +107,15 @@
   (let [spaces (environments/spaces-from-setting (when (= "demo" (query-parameter "spaces")) demo-spaces))]
     {:type :host/init
      :settings {:zoom-out-threshold 150
-                :editor-colors? (or (= "on" (query-parameter "editor-colors")) (true? (remembered :editor-colors?)))}
+                :editor-colors? (or (= "on" (query-parameter "editor-colors")) (true? (remembered :editor-colors?)))
+                :toolbar-colors (case (query-parameter "toolbar")
+                                  "plain" :plain
+                                  "white" {"all" "#ffffff"}
+                                  (or (remembered :toolbar-colors) :colored))
+                :page-commands (when (= "demo" (query-parameter "commands")) demo-page-commands)}
      :theme-kind (if (= "light" (query-parameter "theme")) :light :dark)
      :sky-mode (environments/chosen-id (or (query-parameter "sky") (some-> (remembered :sky-mode) name) "auto") spaces)
+     :simple-color (remembered :simple-color)
      :spaces spaces
      :display-mode (keyword (or (query-parameter "display") "code"))
      :view-filter (remembered :view-filter)
@@ -102,6 +124,11 @@
      :color-layers (or (layers-parameter) (remembered :color-layers))
      :color-overrides (remembered :color-overrides)
      :totals-open? (or (= "open" (query-parameter "totals")) (remembered :totals-open?))
+     :title-summary-hidden? (remembered :title-summary-hidden?)
+     :auto-hide-bars? (remembered :auto-hide-bars?)
+     :windows (remembered :windows)
+     :grid (remembered :grid)
+     :shown-ignored (remembered :shown-ignored)
      :tint-clouds? (remembered :tint-clouds?)
      :inspector-minimized? (remembered :inspector-minimized?)
      :repl-geometry (remembered :repl-geometry)
@@ -113,16 +140,52 @@
 (defonce ^:private made-files
   (atom {}))
 
+(def ^:private ignored-stand-in
+  "What the harness says the cloud leaves out, by folder, as the extension
+  would list it."
+  {"" [{:path ".cpcache/" :folder? true :reason :cloud}
+       {:path "target/" :folder? true :reason :git}
+       {:path ".gitignore" :folder? false :reason :type}
+       {:path "notes.md" :folder? false :reason :type}]
+   "target/" [{:path "target/classes/" :folder? true}
+              {:path "target/generated.clj" :folder? false}]})
+
+(def ^:private generated-text
+  "(ns orchard.generated)\n\n(defn built\n  \"Made by the build, so git ignores it.\"\n  []\n  :at-build-time)\n")
+
+(defn- generated-node
+  "The page of target/generated.clj, a file git ignores, as the analyzer
+  reads it once the viewer chooses to see it."
+  []
+  (let [lines (string/split-lines generated-text)
+        node {:definitions [{:name "built" :kind :function :private? false :line 3 :end-line 6
+                             :path "target/generated.clj" :inbound-count 0 :local-count 0}]
+              :parse-error? false :name "orchard.generated" :cycle-id nil :external-requires [] :hotspots []
+              :requires [] :id "orchard.generated" :kind :namespace :required-by [] :ignored? true
+              :files [{:path "target/generated.clj" :dialect "clj" :line-count (count lines)
+                       :longest-line (apply max (map count lines)) :content-key "generated" :parse-error nil :ignored? true}]
+              :line-count (count lines) :method-count 0
+              :doc nil :flag-counts {}
+              :importance 0.1}]
+    (assoc node :metrics (metrics/namespace-metrics node))))
+
+(defn- generated-shown? []
+  ((ignored/shown-predicate (ignored/chosen-paths (remembered :shown-ignored))) "target/generated.clj"))
+
 (defn- working-snapshot
-  "The bundle's working tree with the pages of the files made since."
+  "The bundle's working tree with the pages of the files made since, and
+  the page of the ignored file once the viewer chooses to see it."
   [bundle]
-  (update (:snapshot bundle) :namespaces merge (update-vals @made-files :node)))
+  (cond-> (update (:snapshot bundle) :namespaces merge (update-vals @made-files :node))
+    (generated-shown?) (assoc-in [:namespaces "orchard.generated"] (generated-node))))
 
 (defn- source-files
   "A page's files for `source-key`. The bundle holds only working-tree
   text, so other snapshots come back empty."
   [bundle namespace-id source-key]
-  (let [working-files (or (:files (get @made-files namespace-id)) (get-in bundle [:sources namespace-id] []))]
+  (let [working-files (or (:files (get @made-files namespace-id))
+                          (when (= "orchard.generated" namespace-id) [{:path "target/generated.clj" :text generated-text}])
+                          (get-in bundle [:sources namespace-id] []))]
     (if (= source-key (ui-state/source-key (working-snapshot bundle) namespace-id))
       working-files
       (mapv #(assoc % :text "") working-files))))
@@ -141,12 +204,15 @@
 
 (def ^:private reporting-level (atom :full))
 
+(def ^:private wavescope-bands (atom :fine))
+
 (defn- agents-message []
   {:type :host/agents
    :serving? (not= "off" (query-parameter "agents"))
    :url "http://127.0.0.1:41234/mcp"
    :agents @present-agents
    :reporting @reporting-level
+   :wavescope-bands @wavescope-bands
    :problem nil})
 
 (def ^:private acted-presence
@@ -420,9 +486,14 @@
 (defmethod answer! :view/save-view [_bundle message _deliver!]
   (show-toast! (str "The extension would save the view " (pr-str (:name message)) " in the cloud file.")))
 
-(defmethod answer! :view/save-preference [_bundle {preference :key :keys [value]} _deliver!]
+(defmethod answer! :view/save-preference [bundle {preference :key :keys [value]} deliver!]
   (try (.setItem js/localStorage (str "codecloud:" (name preference)) (pr-str value))
-       (catch :default _error nil)))
+       (catch :default _error nil))
+  (when (= :shown-ignored preference)
+    (later! deliver! 300 {:type :host/snapshot :snapshot (working-snapshot bundle)})))
+
+(defmethod answer! :view/list-ignored [_bundle {folder :path} deliver!]
+  (later! deliver! 80 {:type :host/ignored :path folder :entries (get ignored-stand-in folder []) :more 0}))
 
 ;; A REPL stand-in. It evaluates a small part of Clojure in the browser,
 ;; enough to show results and errors the way an nREPL server sends them.
@@ -565,6 +636,10 @@
   (reset! reporting-level level)
   (later! deliver! 200 (agents-message)))
 
+(defmethod answer! :view/agents-wavescope-bands [_bundle {:keys [bands]} deliver!]
+  (reset! wavescope-bands bands)
+  (later! deliver! 200 (agents-message)))
+
 (defmethod answer! :view/repl-disconnect [_bundle {:keys [tab]} deliver!]
   (later! deliver! 60 {:type :host/repl-status :tab tab :status :disconnected :message "Disconnected."}))
 
@@ -614,6 +689,47 @@
     ;; A terminal echoes the line typed, then the command answers it.
     (later! deliver! 60 {:type :host/shell-output :tab tab :id id :text (str text "\nhello " text "\n")})
     (later! deliver! 160 {:type :host/shell-output :tab tab :id id :done? true :exit-code 0 :cwd "/home/harness/orchard"})))
+
+(def ^:private window-files
+  "Where the harness serves the files its windows show, relative to the
+  harness page, standing in for the cloud's folder."
+  "../test-resources/windows/")
+
+(defonce ^:private window-versions (atom {}))
+
+(defn- deliver-window! [deliver! window-id fields]
+  (let [version (get (swap! window-versions update window-id (fnil inc 0)) window-id)]
+    (later! deliver! 30 (assoc fields :type :host/window :id window-id :version version))))
+
+(defmethod answer! :view/window-open [_bundle {:keys [id kind source]} deliver!]
+  (let [address (str window-files source)]
+    (case kind
+      :web (deliver-window! deliver! id {:url source})
+      :markdown (-> (js/fetch address #js {:cache "no-store"})
+                    (.then (fn [^js response]
+                             (if (.-ok response)
+                               (.then (.text response)
+                                      (fn [text]
+                                        (deliver-window! deliver! id {:text text
+                                                                      :base-url (string/replace address #"/[^/]*$" "")})))
+                               (deliver-window! deliver! id {:error (str "No file at " source)})))))
+      (deliver-window! deliver! id {:url address}))))
+
+(defmethod answer! :view/window-close [_bundle _message _deliver!]
+  nil)
+
+(defmethod answer! :view/window-pick-file [_bundle _message deliver!]
+  (show-toast! "The extension would ask for a file; the harness opens guide.md.")
+  (later! deliver! 60 {:type :host/open-window :kind :markdown :source "guide.md"}))
+
+(defmethod answer! :view/window-reveal [_bundle {:keys [source]} _deliver!]
+  (show-toast! (str "The extension would open " source ".")))
+
+(defmethod answer! :view/run-page-command [_bundle {:keys [title command shell path line column]} _deliver!]
+  (show-toast! (str "The extension would run " title ", " (or command shell) ", for " path " at " line ":" column ".")))
+
+(defmethod answer! :view/pick-page-command [_bundle {:keys [path line]} _deliver!]
+  (show-toast! (str "The extension would offer every command to run for " path " at line " line ".")))
 
 (defmethod answer! :view/list-terminals [_bundle _message deliver!]
   (later! deliver! 60 {:type :host/terminals :terminals [{:id "terminal-1" :name "zsh"}] :calva? true}))

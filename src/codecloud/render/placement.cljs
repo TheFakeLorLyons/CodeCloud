@@ -249,17 +249,18 @@
             page-extents)))
 
 (defn center
-  "Middle of the camera-square box holding every page at home. Framing it
-  centers the cloud however its pages are sized, as on a ranked wall."
-  [app]
-  (let [page-extents (extents app)]
-    (if (empty? page-extents)
-      [0 0 0]
-      (let [{:keys [right up forward]} (camera/basis app)
-            [least-across most-across least-rise most-rise nearest farthest] (camera-box page-extents right up forward)]
-        (reduce add [0 0 0] [(scale-by (* 0.5 (+ least-across most-across)) (camera/vector-of right))
-                             (scale-by (* 0.5 (+ least-rise most-rise)) (camera/vector-of up))
-                             (scale-by (* 0.5 (+ nearest farthest)) (camera/vector-of forward))])))))
+  "Middle of the camera-square box holding every page at home, or the
+  `page-extents` given. Framing it centers the cloud however its pages
+  are sized, as on a ranked wall."
+  ([app] (center app (extents app)))
+  ([app page-extents]
+   (if (empty? page-extents)
+     [0 0 0]
+     (let [{:keys [right up forward]} (camera/basis app)
+           [least-across most-across least-rise most-rise nearest farthest] (camera-box page-extents right up forward)]
+       (reduce add [0 0 0] [(scale-by (* 0.5 (+ least-across most-across)) (camera/vector-of right))
+                            (scale-by (* 0.5 (+ least-rise most-rise)) (camera/vector-of up))
+                            (scale-by (* 0.5 (+ nearest farthest)) (camera/vector-of forward))])))))
 
 (defn folder-extent
   "Center and radius of a folder's pages where they belong."

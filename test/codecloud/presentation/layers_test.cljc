@@ -258,6 +258,14 @@
     (is (= (nth (:day (layers/layer-color layers/folder-layer (:folder contexts) user)) 2)
            (get (layers/folder-hues contexts app-snapshot) "app.model.user")))))
 
+(deftest pages-shown-though-ignored-stay-gray
+  (let [snapshot (snapshot-of (page "app.model.user" "src/app/model/user.clj")
+                              (page "app.generated" "target/generated.clj" :ignored? true))
+        contexts (layers/prepare layers/built-in snapshot)]
+    (is (some? (get (colors-with [:folder] snapshot) "app.model.user")))
+    (is (nil? (get (colors-with [:folder] snapshot) "app.generated")) "no layer colors it, so it takes an uncolored page's gray")
+    (is (not (contains? (layers/folder-hues contexts snapshot) "app.generated")) "and its cloud stays plain")))
+
 (deftest folder-clouds-tint-by-the-layers-shown
   (is (= :strong (layers/cloud-tint #{:folder} true)))
   (is (= :slight (layers/cloud-tint #{:folder :dependents} true)))

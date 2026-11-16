@@ -4,6 +4,7 @@
   :effects}, effects being data for the renderer."
   (:require [clojure.string :as string]
             [codecloud.languages.catalog :as catalog]
+            [codecloud.model.ignored :as ignored]
             [codecloud.model.restriction :as restriction]
             [codecloud.model.source :as source]
             [codecloud.presentation.arrangement :as arrangement]
@@ -13,13 +14,16 @@
             [codecloud.presentation.editing-state :as editing-state]
             [codecloud.presentation.environments :as environments]
             [codecloud.presentation.handling :refer [changed send-effect unchanged with-notice]]
+            [codecloud.presentation.ignored-state :as ignored-state]
             [codecloud.presentation.layers :as layers]
             [codecloud.presentation.page :as page]
+            [codecloud.presentation.page-commands :as page-commands]
             [codecloud.presentation.pairing :as pairing]
             [codecloud.presentation.presence-state :as presence-state]
             [codecloud.presentation.repl-state :as repl-state]
             [codecloud.presentation.scene :as scene]
-            [codecloud.presentation.visibility :as visibility]))
+            [codecloud.presentation.visibility :as visibility]
+            [codecloud.presentation.windows-state :as windows-state]))
 
 (def dock-defaults
   "The dock's layout before the viewer changes it, its width in pixels,
@@ -40,6 +44,7 @@
    :lifted-folder nil
    :hovered-id nil
    :sky-mode environments/default-id
+   :simple-color nil
    :spaces []
    :theme-kind :dark
    :display-mode :code
@@ -60,6 +65,8 @@
    :moved-pages {}
    :arrange-open? false
    :totals-open? false
+   :title-summary-hidden? false
+   :auto-hide-bars? false
    :inspector-minimized? false
    :dock dock-defaults
    :named-views {}
@@ -88,7 +95,15 @@
    :inline-results {}
    :agents {:serving? false :url nil :agents [] :problem nil}
    :presence presence-state/initial
-   :assistant assistant-state/initial})
+   :assistant assistant-state/initial
+   :windows []
+   :window-contents {}
+   :windows-menu-open? false
+   :grid {:cells [] :shown? false :splits windows-state/even-splits}
+   :ignored-open? false
+   :ignored-listing {}
+   :open-ignored-folders #{}
+   :shown-ignored []})
 
 (defn- remember [preference value]
   (send-effect :view/save-preference {:key preference :value value}))
@@ -107,6 +122,16 @@
   (fn [state & arguments]
     (let [value (apply next-value state arguments)]
       (changed (assoc-in state path value) (remember preference value)))))
+
+(defn- in-simple-color
+  "Simple, shown in the color `color-text` names, or in the editor theme's
+  colors when it names none."
+  [state color-text]
+  (assoc state :sky-mode :simple :simple-color (environments/chosen-color color-text)))
+
+(defn- choose-simple-color [state color-text]
+  (let [chosen (in-simple-color state color-text)]
+    (changed chosen (remember :simple-color (:simple-color chosen)) (remember :sky-mode :simple))))
 
 (defn- remembered-toggle [preference path]
   (remembered preference path #(not (get-in % path))))
@@ -270,6 +295,17 @@
 (defn colored-by-default? [{:keys [active-layers default-layers]}]
   (= active-layers default-layers))
 
+(defn arranged-by-default?
+  "True when the cloud is arranged, colored, spaced, and placed the usual
+  way, so the Arrange pane has nothing to reset."
+  [{:keys [arrangement header-mode spread moved-pages] :as state}]
+  (let [spread-tolerance 0.01]
+    (and (= :folders arrangement)
+         (= :beside header-mode)
+         (colored-by-default? state)
+         (<= (Math/abs (- spread 1)) spread-tolerance)
+         (empty? moved-pages))))
+
 (defn shown-code-colors
   "The code colors pages show, the editor theme's while the switch is on
   and the host could read them, and CodeCloud's own otherwise."
@@ -278,8 +314,8 @@
     editor-colors
     code-colors/own))
 
-(defn shown-environment [{:keys [sky-mode spaces]}]
-  (environments/environment-of sky-mode spaces))
+(defn shown-environment [{:keys [sky-mode spaces simple-color]}]
+  (environments/with-simple-color (environments/environment-of sky-mode spaces) simple-color))
 
 (defn- recolored
   "The state with every page's color blended again, preparing each layer
@@ -358,9 +394,9 @@
 
 (defn- take-init
   "The state with the settings and preferences the host sends first."
-  [state {:keys [settings theme-kind sky-mode spaces cloud-name editor-font display-mode view-filter
+  [state {:keys [settings theme-kind sky-mode simple-color spaces cloud-name editor-font display-mode view-filter
                  arrangement header-mode color-layers color-overrides spread totals-open? tint-clouds?
-                 inspector-minimized? repl-geometry dock]}]
+                 inspector-minimized? repl-geometry dock title-summary-hidden? auto-hide-bars? windows grid shown-ignored]}]
   (let [chosen-layers (when (sequential? color-layers) (vec (filter keyword? color-layers)))
         described-spaces (if (sequential? spaces) (vec spaces) [])
         chosen-colors (if (map? color-overrides) color-overrides {})
@@ -371,26 +407,31 @@
                                :theme-kind (or theme-kind :dark)
                                :spaces described-spaces
                                :sky-mode (:id (environments/environment-of sky-mode described-spaces))
+                               :simple-color (environments/chosen-color simple-color)
                                :cloud-name cloud-name
                                :editor-font editor-font
                                :totals-open? (true? totals-open?)
+                               :title-summary-hidden? (true? title-summary-hidden?)
+                               :auto-hide-bars? (true? auto-hide-bars?)
                                :inspector-minimized? (true? inspector-minimized?)
                                :dock (dock-layout dock)
                                :tint-clouds? (not (false? tint-clouds?))
                                :color-layers chosen-layers
                                :color-overrides chosen-colors
                                :view-filter shown-filter
-                               :header-mode shown-headers)
+                               :header-mode shown-headers
+                               :shown-ignored (ignored/chosen-paths shown-ignored))
                   display-mode (assoc :display-mode display-mode)
                   arrangement (assoc :arrangement (:key (arrangement/arrangement arrangement)))
                   spread (assoc :spread (bounded-spread spread))
                   (repl-state/valid-geometry repl-geometry) (assoc-in [:repl :geometry] (repl-state/valid-geometry repl-geometry)))]
-    (unchanged (cond
-                 (or (not= shown-filter (:view-filter state)) (not= shown-headers (:header-mode state)))
-                 (with-visibility updated)
-                 (not= chosen-colors (:color-overrides state)) (recolored updated true)
-                 (not= chosen-layers (:color-layers state)) (recolored updated false)
-                 :else updated))))
+    (windows-state/restored (cond
+                              (or (not= shown-filter (:view-filter state)) (not= shown-headers (:header-mode state)))
+                              (with-visibility updated)
+                              (not= chosen-colors (:color-overrides state)) (recolored updated true)
+                              (not= chosen-layers (:color-layers state)) (recolored updated false)
+                              :else updated)
+                            {:windows windows :grid grid})))
 
 (defn- take-views
   "The state with the cloud file's named views and color layers."
@@ -506,6 +547,7 @@
   (cond
     (:editing state) (unchanged (stop-editing state))
     (:menu state) (unchanged (assoc state :menu nil))
+    (:windows-menu-open? state) (unchanged (assoc state :windows-menu-open? false))
     (:color-chooser state) (unchanged (assoc state :color-chooser nil))
     :else (set-down-one state)))
 
@@ -578,8 +620,12 @@
    :frame-directory frame-directory
    :cycle-sky-mode (remembered :sky-mode [:sky-mode] #(environments/next-id (:sky-mode %) (:spaces %)))
    :choose-sky-mode (remembered :sky-mode [:sky-mode] (fn [state id] (:id (environments/environment-of id (:spaces state)))))
+   :preview-simple-color (quietly in-simple-color)
+   :choose-simple-color choose-simple-color
    :toggle-display-mode (remembered :display-mode [:display-mode] #(if (= :names (:display-mode %)) :code :names))
    :toggle-editor-colors (remembered-toggle :editor-colors? [:settings :editor-colors?])
+   :toggle-toolbar-colors (remembered :toolbar-colors [:settings :toolbar-colors]
+                                      #(if (= :plain (get-in % [:settings :toolbar-colors])) :colored :plain))
    :toggle-legend (quietly #(update % :legend-open? not))
    :toggle-inspector (remembered-toggle :inspector-minimized? [:inspector-minimized?])
    :toggle-pane-minimized (with-dock (fn [layout pane]
@@ -638,6 +684,24 @@
 (def ^:private set-spread
   (remembered :spread [:spread] (fn [_state spread] (bounded-spread spread))))
 
+(defn- then-handle
+  "The outcome of `handler` on the state `outcome` leaves, its effects
+  after those `outcome` holds."
+  [{:keys [state effects]} handler & arguments]
+  (update (apply handler state arguments) :effects #(into effects %)))
+
+(defn- reset-arrangement
+  "Puts back everything the Arrange pane changes, so pages stand by
+  folder, headers beside their sources, colors as they start, the
+  spacing usual, and no page where a hand moved it."
+  [state]
+  (-> (unchanged (assoc state :moved-pages {} :menu nil))
+      (then-handle set-arrangement :folders)
+      (then-handle set-header-mode :beside)
+      (then-handle choose-layers nil)
+      (then-handle set-spread 1.0)
+      (update :effects (comp vec distinct))))
+
 (def ^:private arrangement-handlers
   {:toggle-arrange-panel (side-pane-toggle :arrange)
    :set-arrangement set-arrangement
@@ -651,6 +715,8 @@
    :choose-color choose-color
    :reset-color (fn [state target] (choose-color state target nil))
    :toggle-totals (remembered-toggle :totals-open? [:totals-open?])
+   :toggle-title-summary (remembered-toggle :title-summary-hidden? [:title-summary-hidden?])
+   :toggle-auto-hide-bars (remembered-toggle :auto-hide-bars? [:auto-hide-bars?])
    :preview-spread (quietly (fn [state spread] (assoc state :spread (bounded-spread spread))))
    :set-spread set-spread
    :step-spread (fn [state direction]
@@ -658,7 +724,8 @@
                     (set-spread state (* (:spread state) (Math/pow step-ratio direction)))))
    :move-page (quietly (fn [state namespace-id offset] (assoc-in state [:moved-pages namespace-id] offset)))
    :put-back (quietly (fn [state namespace-id] (-> state (update :moved-pages dissoc namespace-id) (assoc :menu nil))))
-   :put-everything-back (quietly #(assoc % :moved-pages {} :menu nil))})
+   :reset-page-positions (quietly #(assoc % :moved-pages {} :menu nil))
+   :reset-arrangement reset-arrangement})
 
 ;; Views and filters
 
@@ -1141,6 +1208,9 @@
    :agents-reporting (fn [state level]
                        (changed (assoc-in state [:agents :reporting] level)
                                 (send-effect :view/agents-reporting {:level level})))
+   :agents-wavescope-bands (fn [state bands]
+                             (changed (assoc-in state [:agents :wavescope-bands] bands)
+                                      (send-effect :view/agents-wavescope-bands {:bands bands})))
    :open-coworkers (quietly #(with-side-pane % :coworkers true))
    :toggle-coworkers (side-pane-toggle :coworkers)
    :toggle-assistant (side-pane-toggle :assistant)
@@ -1177,11 +1247,15 @@
    :host/document (quietly take-document)
    :host/dirty (quietly (fn [state {:keys [path dirty?]}] (with-dirty state path dirty?)))
    :host/agents (quietly (fn [state message]
-                           (assoc state :agents (select-keys message [:serving? :url :agents :problem :reporting]))))
+                           (assoc state :agents (select-keys message [:serving? :url :agents :problem :reporting :wavescope-bands]))))
    :host/presence take-presence
    :host/formatted take-formatted
    :host/created take-created
-   :host/diagnostics (quietly (fn [state {:keys [files]}] (assoc state :diagnostics (or files {}))))})
+   :host/diagnostics (quietly (fn [state {:keys [files]}] (assoc state :diagnostics (or files {}))))
+   :host/window (:host/window windows-state/message-handlers)
+   :host/open-window (:host/open-window windows-state/message-handlers)
+   :host/pick-page-command (:host/pick-page-command page-commands/message-handlers)
+   :host/ignored (:host/ignored ignored-state/message-handlers)})
 
 (def ^:private all-message-handlers
   (merge message-handlers
@@ -1205,7 +1279,10 @@
          editing-handlers
          repl-state/handlers
          agent-handlers
-         assistant-state/handlers))
+         assistant-state/handlers
+         windows-state/handlers
+         page-commands/handlers
+         ignored-state/handlers))
 
 (defn handle
   "Applies one event, a vector led by its type, to the state. An event

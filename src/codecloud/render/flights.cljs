@@ -4,9 +4,11 @@
   (:require [codecloud.presentation.page :as page]
             [codecloud.presentation.zoom :as zoom]
             [codecloud.render.camera :as camera]
+            [codecloud.render.grid :as grid]
             [codecloud.render.navigation :as navigation]
             [codecloud.render.pages :as pages]
-            [codecloud.render.placement :as placement]))
+            [codecloud.render.placement :as placement]
+            [codecloud.render.windows :as windows]))
 
 (defn examine!
   "Marks the page the camera is headed for, so pages nearer the camera
@@ -20,12 +22,13 @@
    (+ z (* distance (.-z direction)))])
 
 (defn frame-everything!
-  "Flies to where the whole cloud fits the part of the view that no side
-  panel covers."
+  "Flies to where the whole cloud and its windows fit the part of the view
+  that no side panel covers."
   [app duration]
   (when (placement/ready? app)
-    (let [center (placement/center app)
-          distance (camera/fitting-distance app center (placement/extents app))
+    (let [all-extents (concat (placement/extents app) (windows/extents (:windows app) app))
+          center (placement/center app all-extents)
+          distance (camera/fitting-distance app center all-extents)
           {:keys [right]} (camera/basis app)]
       (examine! app nil)
       (navigation/fly-to! (:controller app)
@@ -69,9 +72,9 @@
 (defn fly-to-page!
   "Flies to a page until it fills the part of the screen that no side pane
   covers, centered there, stopping short of making its code larger than
-  the editor's."
+  the editor's. A page in the grid is already in view."
   [app id]
-  (when-let [{:keys [geometry]} (get-in @(:frame app) [:visuals id])]
+  (when-let [{:keys [geometry]} (when-not (grid/cell-of-page app id) (get-in @(:frame app) [:visuals id]))]
     (when-let [position (placement/target-of app id)]
       (let [distance (camera/distance-for-pixels-per-unit
                       app (min (camera/open-fitting-pixels-per-unit app (:width geometry) (:height geometry))
@@ -110,11 +113,12 @@
 
 (defn fly-to-line!
   "Flies to a line of a page until its code shows at `reading-share` of
-  the editor's size, framed in the part of the view no pane covers. A
-  page with no place yet is waited for over the next frames."
+  the editor's size, framed in the part of the view no pane covers, or
+  scrolls the grid cell holding the page to it. A page with no place yet
+  is waited for over the next frames."
   [app location reading-share duration]
   (let [frames-waited 40]
-    (if (flown-to-line! app location reading-share duration)
+    (if (or (grid/scroll-to-line! app location) (flown-to-line! app location reading-share duration))
       (swap! (:frame app) dissoc :waiting-flight)
       (swap! (:frame app) assoc :waiting-flight {:location location :reading-share reading-share :duration duration
                                                  :frames-left frames-waited}))))

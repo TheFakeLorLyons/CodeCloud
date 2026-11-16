@@ -53,6 +53,11 @@
   the bundler at the ES module build avoids it."
   "--alias:three=./node_modules/three/build/three.module.js")
 
+(def ^:private three-examples
+  "The alias for three.js also catches paths under three, so its examples,
+  such as the CSS3D renderer, take an alias of their own."
+  "--alias:three/examples=./node_modules/three/examples")
+
 (def ^:private bundle-arguments
   "esbuild arguments that turn each compiled build into one file, and
   wavescope-mcp, which the extension runs as a child process, into one ES
@@ -65,9 +70,9 @@
    :wavescope ["node_modules/wavescope-mcp/dist/index.js" "--platform=node" "--format=esm" "--target=node18"
                "--minify" "--metafile=out/wavescope-inputs.json" "--outfile=dist/wavescope.mjs"]
    :webview ["out/webview/main.js" "--platform=browser" "--format=iife" "--target=chrome120"
-             three-module "--minify" "--outfile=dist/webview.js"]
+             three-module three-examples "--minify" "--outfile=dist/webview.js"]
    :harness ["out/harness/main.js" "--platform=browser" "--format=iife" "--target=chrome120"
-             three-module "--outfile=dev/harness.js"]
+             three-module three-examples "--outfile=dev/harness.js"]
    :cli ["out/cli/main.js" "--platform=node" "--format=cjs" "--target=node18"
          "--outfile=dist/cli.js"]})
 
@@ -112,6 +117,18 @@
 
 (defn- copy-parsers! []
   (doseq [[from to] parser-files]
+    (io/copy (io/file from) (io/file to))))
+
+(def ^:private pdf-files
+  "pdf.js and its worker, which the view loads when a window shows a PDF,
+  and the license pdf.js ships under, copied next to the bundles. The
+  module's copy ends in .js, the extension webviews serve as JavaScript."
+  {"node_modules/pdfjs-dist/build/pdf.min.mjs" "dist/pdfjs.js"
+   "node_modules/pdfjs-dist/build/pdf.worker.min.mjs" "dist/pdf.worker.mjs"
+   "node_modules/pdfjs-dist/LICENSE" "dist/pdfjs-LICENSE.txt"})
+
+(defn- copy-pdf-files! []
+  (doseq [[from to] pdf-files]
     (io/copy (io/file from) (io/file to))))
 
 ;; wavescope's license notices
@@ -179,6 +196,8 @@
   (bundle! build-key)
   (when (contains? #{:extension :cli} build-key)
     (copy-parsers!))
+  (when (contains? #{:webview :harness} build-key)
+    (copy-pdf-files!))
   (when (= :extension build-key)
     (bundle-wavescope!)))
 

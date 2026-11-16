@@ -30,6 +30,12 @@
   [{:keys [config]}]
   (if-let [level (:reporting config)] (level) :full))
 
+(defn- wavescope-bands
+  "How much of wavescope's view around a line agents get, one of
+  codecloud.agents.tools/wavescope-bands."
+  [{:keys [config]}]
+  (if-let [bands (:wavescope-bands config)] (bands) :fine))
+
 ;; Paths
 
 (defn- existing-path [candidate]
@@ -298,6 +304,22 @@
     (when-let [reading (tools/wavescope-read tool-name resolved (shown-range result))]
       (record-reads! hub session-id [reading]))))
 
+(defn- reshaped-answer
+  "wavescope's answer to a call of `tool-name` as agents get it: a
+  summary's lines in order, and the code around a line cut to its fine
+  band unless every band is wanted."
+  [hub tool-name result]
+  (let [text (get-in result ["content" 0 "text"])
+        with-text (fn [new-text] (assoc-in result ["content" 0 "text"] new-text))]
+    (cond
+      (or (get result "isError") (not (string? text))) result
+      (= "get_summary_at_scale" tool-name) (with-text (tools/summary-by-line text))
+      (and (contains? tools/band-tools tool-name) (= :fine (wavescope-bands hub)))
+      (if-let [parsed (try (js->clj (js/JSON.parse text)) (catch :default _error nil))]
+        (with-text (js/JSON.stringify (clj->js (tools/fine-band-only parsed)) nil 2))
+        result)
+      :else result)))
+
 (defn- run-wavescope-tool!
   "Resolves to wavescope's answer to session `session-id`'s call, its
   paths resolved first, recording what it read."
@@ -308,7 +330,7 @@
                    (task/then #(mcp-stdio/call-tool! % tool-name resolved))
                    (task/then (fn [result]
                                 (record-wavescope-read! hub session-id tool-name resolved result)
-                                result))))))
+                                (reshaped-answer hub tool-name result)))))))
 
 (defn- run-cursor-tool!
   "Resolves to wavescope's answer about the person's caret, telling
@@ -331,7 +353,7 @@
                                                    (fn [_] (mcp-stdio/call-tool! client tool-name resolved)))))
                            (task/then (fn [result]
                                         (record-wavescope-read! hub session-id tool-name (assoc resolved "center" (:line caret)) result)
-                                        result)))
+                                        (reshaped-answer hub tool-name result))))
                        (task/rejected (js/Error. (str "The person's caret has not been in " (described-target roots resolved)
                                                       " since CodeCloud started"
                                                       (when latest (str "; it is in " (described-target roots {"file" (:file latest)})))
@@ -411,7 +433,8 @@
                                       (let [level (reporting hub)]
                                         {:info {"name" "codecloud" "title" "CodeCloud" "version" version}
                                          :instructions (tools/instructions level)
-                                         :tools (into (cloud-tools/listed-tools level) tools/wavescope-tools)}))
+                                         :tools (into (cloud-tools/listed-tools level)
+                                                      (tools/listed-wavescope-tools (wavescope-bands hub)))}))
                           :run-tool (fn [session-id call] (run-tool! hub session-id call))
                           :on-change (fn [sessions]
                                        (note-arrivals! hub sessions)
@@ -423,9 +446,10 @@
                             :expiry-timer (js/setInterval #(expire-presence! hub false) expiry-interval-milliseconds))
                      (assoc hub :address address :port (:port http-server)))))))
 
-(defn reporting-changed!
+(defn tools-changed!
   "Tells connected agents to list the tools again after the reporting
-  level changed. New instructions reach agents that connect later."
+  level or wavescope's bands changed. New instructions reach agents that
+  connect later."
   [{:keys [state]}]
   (when-let [http-server (:http @state)]
     (mcp-http/notify-all! http-server "notifications/tools/list_changed" nil)))

@@ -5,7 +5,8 @@
   draws. The built-in environments come first, then the spaces a person
   describes in the codecloud.spaces setting, each a room or an endless
   maze of rooms with walls, floor, and ceiling of its own."
-  (:require [clojure.string :as string]))
+  (:require [clojure.string :as string]
+            [codecloud.presentation.color :as color]))
 
 (defn hex-rgb
   "Gamma-encoded sRGB components from 0 to 1 of a color written as #rgb or
@@ -38,6 +39,16 @@
    :lamps (hex-rgb "#fff6d6")
    :haze (hex-rgb "#5f5532")})
 
+(def ^:private night-library-space
+  "Dark wood paneling, red carpet, and warm lamps, aisle after aisle after
+  closing time."
+  {:layout :maze
+   :walls {:color (hex-rgb "#3a2a22") :accent (hex-rgb "#2e221a") :pattern :stripes :scale 1.0}
+   :floor {:color (hex-rgb "#5a1f24") :accent (hex-rgb "#47181c") :pattern :carpet :scale 1.0}
+   :ceiling {:color (hex-rgb "#2b2420") :accent (hex-rgb "#221c19") :pattern :tiles :scale 1.0}
+   :lamps (hex-rgb "#ffd9a0")
+   :haze (hex-rgb "#140f0c")})
+
 (def ^:private plain-space
   "The room a described space starts from, light walls on a tiled floor
   under a lit ceiling, each part replaced by what the description gives."
@@ -64,7 +75,9 @@
    {:id :clock :name "Time of day" :backdrop :sky :light :clock :folders :clouds
     :description "The sky of the local time, with dusk and dawn between"}
    {:id :backrooms :name "Backrooms" :backdrop :room :light :day :folders :clouds :space backrooms-space
-    :description "Yellow wallpaper, damp carpet, and humming lights, room after room"}])
+    :description "Yellow wallpaper, damp carpet, and humming lights, room after room"}
+   {:id :night-library :name "Night Library" :backdrop :room :light :night :folders :clouds :space night-library-space
+    :description "Dark wood, red carpet, and warm lamps, aisle after aisle"}])
 
 (def default-id
   "The environment a first look at the cloud gets, the lightest to draw."
@@ -140,6 +153,36 @@
   "Every environment to choose from, the built-in ones first."
   [spaces]
   (concat built-in spaces))
+
+(defn chosen-color
+  "The color `text` names as #rgb or #rrggbb, written as #rrggbb, or nil."
+  [text]
+  (some-> (hex-rgb text) color/rgb->hex))
+
+(def ^:private simple-look
+  "The gradient and light of Simple in the color `color-hex` names, the
+  color overhead brightening toward the horizon, with pages in their day
+  look on a light color and their night look on a dark one, or nil when
+  it names none. Kept per color, since every frame asks."
+  (memoize
+   (fn [color-hex]
+     (when-let [rgb (hex-rgb color-hex)]
+       (let [[lightness chroma hue] (color/rgb->oklch rgb)
+             horizon-rise 0.13
+             brightest 0.98
+             ;; Black text and white text read equally well at this luminance.
+             even-contrast 0.179]
+         {:gradient {:zenith rgb
+                     :horizon (color/oklch->rgb [(min brightest (+ lightness horizon-rise)) chroma hue])}
+          :light (if (> (color/relative-luminance rgb) even-contrast) :day :night)})))))
+
+(defn with-simple-color
+  "Simple in the color `color-hex` names. Any other environment, or Simple
+  without a color, stays as it is."
+  [environment color-hex]
+  (if-let [look (when (= :simple (:id environment)) (simple-look color-hex))]
+    (merge environment look)
+    environment))
 
 (defn environment-of
   "The environment `id` names, a built-in's keyword or a space's name, or

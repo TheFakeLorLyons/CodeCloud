@@ -30,6 +30,46 @@
    repl-view/panel menu/panel chooser/panel
    pointer/tooltip-panel pointer/dive-panel])
 
+(defn- follow-edges!
+  "Marks `root` while the pointer is near the top or the bottom edge of
+  the view, or over the bars along it, so bars that hide themselves come
+  back there, and lets the mark go a moment after the pointer leaves."
+  [^js root]
+  (let [;; Narrower than the grid's margin, so the pointer reaches the
+        ;; headers of the cells along an edge without calling a bar over them.
+        reach-pixels 8
+        linger-milliseconds 600
+        lingering (atom {})
+        mark! (fn [class-name near?]
+                (let [timer (get @lingering class-name)]
+                  (cond
+                    near? (do (when timer (js/clearTimeout timer))
+                              (swap! lingering dissoc class-name)
+                              (dom/toggle-class! root class-name true))
+                    (and (nil? timer) (.contains (.-classList root) class-name))
+                    (swap! lingering assoc class-name
+                           (js/setTimeout (fn []
+                                            (swap! lingering dissoc class-name)
+                                            (dom/toggle-class! root class-name false))
+                                          linger-milliseconds)))))]
+    (.addEventListener js/window "pointermove"
+                       (fn [^js event]
+                         (let [x (.-clientX event)
+                               y (.-clientY event)
+                               ^js target (.-target event)
+                               ;; Over a bar's own box or anything it holds,
+                               ;; such as a menu hanging below the toolbar.
+                               over? (fn [selector]
+                                       (or (and (instance? js/Element target) (some? (.closest target selector)))
+                                           (some (fn [^js bar]
+                                                   (let [box (.getBoundingClientRect bar)]
+                                                     (and (<= (.-left box) x (.-right box)) (<= (.-top box) y (.-bottom box)))))
+                                                 (array-seq (.querySelectorAll root selector)))))]
+                           (mark! "is-near-top" (or (< y reach-pixels) (over? ".hud-title, .hud-toolbar")))
+                           (mark! "is-near-bottom" (or (> y (- (.-innerHeight js/window) reach-pixels))
+                                                       (over? ".hud-timeline")))))
+                       #js {:passive true})))
+
 (defn create-hud
   "Mounts every panel into `container`, the side panes into the dock,
   which takes the place of the first of them."
@@ -47,12 +87,15 @@
                                [id (assoc instance :update (:update panel))])))
                       panels)]
     (.appendChild container root)
+    (follow-edges! root)
     {:root root :panels mounted :dock side-dock}))
 
 (defn update-hud!
   "Brings every panel up to date with the interface state, then the
-  dock holding the side panes."
-  [{:keys [panels dock]} state]
+  dock holding the side panes, and hides the bars along the edges until
+  the pointer reaches them when the viewer chose so."
+  [{:keys [^js root panels dock]} state]
+  (dom/toggle-class! root "is-auto-hiding" (:auto-hide-bars? state))
   (doseq [[_id {update-panel! :update :as instance}] panels]
     (update-panel! instance state))
   (dock/update-dock! dock state))

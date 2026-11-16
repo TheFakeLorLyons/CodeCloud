@@ -48,6 +48,9 @@
 (defmethod common/handle-message :view/agents-reporting [_session {:keys [level]}]
   (settings/save-agents-reporting! level))
 
+(defmethod common/handle-message :view/agents-wavescope-bands [_session {:keys [bands]}]
+  (settings/save-agents-wavescope-bands! bands))
+
 (defmethod common/handle-message :view/dismiss-pin [{:keys [host]} {:keys [pin-id]}]
   (agents/dismiss-pin! host pin-id))
 

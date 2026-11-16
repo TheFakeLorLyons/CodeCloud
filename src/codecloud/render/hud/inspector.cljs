@@ -138,10 +138,17 @@
 
 (defn- color-section
   "What each layer turned on gives the page, with the blend by the
-  heading. A click on a layer's dot chooses that color."
+  heading, a click on a layer's dot choosing that color, or, for a page
+  shown though ignored, why it is gray."
   [dispatch {:keys [layer-registry layer-contexts active-layers page-colors]} namespace-id node]
   (let [rows (layers/breakdown layer-registry layer-contexts active-layers node)]
-    (when (seq rows)
+    (cond
+      (:ignored? node)
+      [:section.inspector-section
+       [:h3.color-heading (swatches/dot nil) "Color"]
+       [:p.inspector-doc "Gray, since the cloud ignores this file and shows it only as chosen under Ignored in the Views pane."]]
+
+      (seq rows)
       [:section.inspector-section
        [:h3.color-heading (swatches/dot (get page-colors namespace-id)) "Color"]
        [:dl.layer-breakdown

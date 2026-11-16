@@ -99,3 +99,22 @@
   "First descendant of `parent` matching a CSS selector."
   [^js parent selector]
   (.querySelector parent selector))
+
+(defn follow-drag!
+  "Calls `move!` with how far the pointer pressed in `event` has moved,
+  across and down, then `done!` once it lets go. The element pressed holds
+  the pointer meanwhile, so the frames of windows it crosses cannot take
+  it."
+  [^js event move! done!]
+  (let [^js element (.-currentTarget event)
+        start-x (.-clientX event)
+        start-y (.-clientY event)
+        on-move (fn [^js move-event] (move! (- (.-clientX move-event) start-x) (- (.-clientY move-event) start-y)))
+        stop! (fn stop! [_]
+                (.removeEventListener element "pointermove" on-move)
+                (.removeEventListener element "lostpointercapture" stop!)
+                (done!))]
+    (.preventDefault event)
+    (.setPointerCapture element (.-pointerId event))
+    (.addEventListener element "pointermove" on-move)
+    (.addEventListener element "lostpointercapture" stop!)))

@@ -11,6 +11,7 @@
             [codecloud.presentation.scene :as scene]
             [codecloud.presentation.sky-state :as sky-state]
             [codecloud.presentation.ui-state :as ui-state]
+            [codecloud.presentation.windows-state :as windows-state]
             [codecloud.presentation.zoom :as zoom]
             [codecloud.protocol :as protocol]
             [codecloud.render.backdrop :as backdrop]
@@ -20,6 +21,7 @@
             [codecloud.render.flights :as flights]
             [codecloud.render.folders :as folders]
             [codecloud.render.gestures :as gestures]
+            [codecloud.render.grid :as grid]
             [codecloud.render.hud :as hud]
             [codecloud.render.labels :as labels]
             [codecloud.render.navigation :as navigation]
@@ -30,7 +32,8 @@
             [codecloud.render.problems :as problems]
             [codecloud.render.results :as results]
             [codecloud.render.text :as text]
-            [codecloud.render.typing :as typing]))
+            [codecloud.render.typing :as typing]
+            [codecloud.render.windows :as windows]))
 
 (defn- reduced-motion? []
   (.-matches (js/window.matchMedia "(prefers-reduced-motion: reduce)")))
@@ -76,8 +79,10 @@
         layout-changed? (or shown-changed? width-changed? arrangement-changed? pairing-changed? (nil? (:bases @frame)))
         look-changed? (or layout-changed? (not= (look-inputs before) (look-inputs after)))
         buffers-changed? (or (not (identical? (:buffers before) (:buffers after)))
-                             (not= (:editing before) (:editing after)))]
-    (when (and (or look-changed? buffers-changed?) shown)
+                             (not= (:editing before) (:editing after)))
+        pinned-ids (windows-state/pinned-page-ids after)
+        pinned-changed? (not= (windows-state/pinned-page-ids before) pinned-ids)]
+    (when (and (or look-changed? buffers-changed? pinned-changed?) shown)
       (let [previous-visuals (:visuals @frame)
             visible-ids (ui-state/visible-ids after)
             bases (if layout-changed?
@@ -88,7 +93,8 @@
                             (scene/page-visuals shown after bases)
                             (:plain-visuals @frame))
             visuals (cond-> (scene/shaped-by-buffers plain-visuals after character-width)
-                      (seq (:buffers after)) pairing/reshaped)
+                      (seq (:buffers after)) pairing/reshaped
+                      (seq pinned-ids) (scene/pinned-shapes pinned-ids character-width))
             held? (and (:editing after) shown-changed? (not width-changed?) (not arrangement-changed?)
                        (not pairing-changed?) (= visible-ids (:placed-ids @frame)))
             place! (fn [rebuild?]
@@ -154,6 +160,7 @@
     :frame-all (do (flights/set-down-everything! app)
                    (flights/frame-everything! app 1.0))
     :frame-directory (flights/frame-directory! app payload)
+    :fly-to-window (windows/fly-to! (:windows app) app payload)
     :refit (flights/refit-later! app)
     :arrive (flights/arrive! app payload)
     :return-from-dive (flights/return-from-dive! app)
@@ -214,7 +221,7 @@
   float outside their folder's cloud."
   [app]
   (let [{:keys [directory-visuals visuals carried]} @(:frame app)
-        moved-ids (cond-> (set (keys (:moved-pages @(:state app))))
+        moved-ids (cond-> (into (set (keys (:moved-pages @(:state app)))) (windows-state/pinned-page-ids @(:state app)))
                     carried (conj (:id carried)))
         page-layer (:page-layer app)]
     (into {}
@@ -241,7 +248,7 @@
       (if-let [[_ ends] (find @found namespace-id)]
         ends
         (let [ends (when-let [page-object (pages/page-of (:page-layer app) namespace-id)]
-                     (when-let [position (:position page-object)]
+                     (when-let [position (when-not (:clip page-object) (:position page-object))]
                        (let [{:keys [width height]} (pages/shape page-object display-mode)]
                          {:position position
                           :radius (* 0.5 (min width height))
@@ -362,7 +369,9 @@
                                          :focus-distance (navigation/distance (:controller app))
                                          :lift-depth (flights/lift-depth app)
                                          :lifted-ids (flights/lifted-ids app)
-                                         :examined-id (:examined-id @(:frame app))})]
+                                         :examined-id (:examined-id @(:frame app))
+                                         :pinned (grid/pinned-pages app)
+                                         :grid-area (:grid-area @(:frame app))})]
     (request-wanted-sources! app now wanted-ids)))
 
 (defn- draw-folder-clouds!
@@ -443,19 +452,28 @@
                                               :editing? (some? editing)
                                               :menu-open? (some? menu)})))
 
-(defn- render! [app]
+(defn- render!
+  "Draws the backdrop and the cloud, then each grid cell over them, then
+  the windows below the canvas."
+  [app]
   (let [^js renderer (:renderer app)
         {backdrop-scene :scene backdrop-camera :camera} (:backdrop app)]
+    (grid/assign-layers! app)
+    (.setClearColor renderer 0x000000 1)
     (.clear renderer)
     (.render renderer backdrop-scene backdrop-camera)
-    (.render renderer (:scene app) (:camera app))))
+    (.render renderer (:scene app) (:camera app))
+    (grid/render-cells! app)
+    (windows/render! (:windows app) (:camera app))))
 
 (defn- draw-frame! [app now]
   (let [clock (advance-clock! app now)]
     (placement/advance! app (:elapsed clock))
     (flights/first-framing! app)
     (navigation/update! (:controller app) (:elapsed clock))
+    (grid/layout! (:grid app) app @(:state app))
     (draw-pages! app now clock)
+    (windows/update-windows! (:windows app) app @(:state app) now)
     (draw-folder-clouds! app clock)
     (draw-edges-and-backdrop! app clock)
     (leak-dive! app now)
@@ -512,6 +530,7 @@
         sharpest-pixel-ratio 2]
     (.setPixelRatio ^js (:renderer app) (min sharpest-pixel-ratio (or js/window.devicePixelRatio 1)))
     (.setSize ^js (:renderer app) width height false)
+    (windows/resize! (:windows app) width height)
     (set! (.-aspect camera) (/ width height))
     (.updateProjectionMatrix camera)
     (swap! (:frame app) assoc :viewport {:width width :height height})))
@@ -562,9 +581,11 @@
 
 (defn- create-renderer
   "A WebGL renderer drawing into `container`, which clears only when told
-  to, since the sky and the cloud are drawn in two passes."
+  to, since the sky, the cloud, and the grid's cells are drawn in passes.
+  Its canvas has an alpha channel, so windows below it show through the
+  holes it leaves."
   [^js container]
-  (let [^js renderer (three/WebGLRenderer. #js {:antialias true :alpha false :powerPreference "high-performance"})]
+  (let [^js renderer (three/WebGLRenderer. #js {:antialias true :alpha true :powerPreference "high-performance"})]
     (set! (.-autoClear renderer) false)
     (set! (.-outputColorSpace renderer) three/SRGBColorSpace)
     (set! (.-tabIndex (.-domElement renderer)) 0)
@@ -603,6 +624,7 @@
         app-holder (atom nil)
         dispatch-to-app! (fn [event] (dispatch! @app-holder event))
         hud-instance (hud/create-hud container dispatch-to-app!)
+        window-layer (windows/create-layer container scene (.-domElement ^js renderer) dispatch-to-app!)
         label-layer (labels/create-labels (:root hud-instance))
         frame (initial-frame (first-guess-night))
         app {:container container
@@ -625,9 +647,12 @@
                                             (get buffers (:path editing))))
              :controller (navigation/create-controller camera)
              :hud hud-instance
+             :grid (grid/create-grid (:root hud-instance) dispatch-to-app!)
+             :windows window-layer
              :state (atom ui-state/initial-state)
              :frame (atom frame)}]
     (reset! app-holder app)
+    (reset! (:app window-layer) app)
     (hud/apply-theme! hud-instance (:theme-key frame))
     (resize! app)
     (.observe (js/ResizeObserver. #(resize! app)) container)

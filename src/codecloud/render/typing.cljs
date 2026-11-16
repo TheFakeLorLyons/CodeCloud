@@ -13,6 +13,18 @@
   []
   (string/includes? (or (.-platform js/navigator) "") "Mac"))
 
+(defn shortcut
+  "Keys written as Windows and Linux write them, such as Ctrl+Alt+R, as
+  this computer writes them, macOS showing Cmd, Option, and Shift as
+  their symbols."
+  [keys-text]
+  (if (mac?)
+    (-> keys-text
+        (string/replace "Ctrl+" "⌘")
+        (string/replace "Alt+" "⌥")
+        (string/replace "Shift+" "⇧"))
+    keys-text))
+
 (defn- evaluation-scope
   "The scope Enter evaluates with `event`'s modifiers, as Calva binds
   them, or nil for Enter and Shift+Enter, which break the line. Cmd

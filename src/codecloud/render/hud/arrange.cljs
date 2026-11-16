@@ -105,15 +105,15 @@
     [:section.arrange-section
      [:h3 [:label {:for "codecloud-spacing"} "Spacing"]]
      [:div.spacing-row
-      [:span.spacing-end "Close"]
+      [:span.spacing-end "Close ([)"]
       [:input#codecloud-spacing.spacing-slider {:type "range"
                                                 :min (spread->slider spread-least)
                                                 :max (spread->slider spread-most)
                                                 :step slider-step}]
-      [:span.spacing-end "Open"]]
+      [:span.spacing-end "Open (])"]]
      [:button.text-button.usual-spacing {:on-click #(dispatch [:set-spread 1])} "Usual spacing"]]))
 
-(defn- arrange-content [dispatch {:keys [arrangement header-mode moved-pages] :as state} headers?]
+(defn- arrange-content [dispatch {:keys [arrangement header-mode] :as state} headers?]
   (list
    [:header.panel-header
     [:h2 "Arrange"]
@@ -130,9 +130,9 @@
    (code-section dispatch)
    (spacing-section dispatch)
    [:section.arrange-section
-    [:button.action-button.put-back-button {:disabled (empty? moved-pages)
-                                            :on-click #(dispatch [:put-everything-back])}
-     icons/put-back [:span "Put every page back"]]]))
+    [:button.action-button.reset-arrangement-button {:title "Place pages by folder, with the usual colors and spacing"
+                                                     :on-click #(dispatch [:reset-arrangement])}
+     icons/put-back [:span "Reset to default"]]]))
 
 (defn- attach-slider!
   "Previews spacing while the slider moves and keeps it on release."
@@ -163,17 +163,18 @@
                                                   (when-not (= "Escape" (.-key event))
                                                     (.stopPropagation event))))
               {:root root :dispatch dispatch :shown (atom nil) :slider (atom nil) :headers (atom nil)}))
-   :update (fn [{:keys [root dispatch shown slider headers]} {:keys [arrange-open? arrangement header-mode moved-pages
+   :update (fn [{:keys [root dispatch shown slider headers]} {:keys [arrange-open? arrangement header-mode
                                                                      spread layer-registry layer-contexts snapshot]
                                                               :as state}]
              (dom/toggle-class! root "is-open" arrange-open?)
              (when arrange-open?
                (let [headers? (offers-headers? headers snapshot)
-                     shown-key [arrangement header-mode headers? (empty? moved-pages) layer-registry layer-contexts]]
+                     shown-key [arrangement header-mode headers? layer-registry layer-contexts]]
                  (when (not= shown-key @shown)
                    (reset! shown shown-key)
                    (dom/replace-children! root (arrange-content dispatch state headers?))
                    (reset! slider (attach-slider! root dispatch))))
                (show-layers! root state)
                (show-code-colors! root state)
+               (set! (.-disabled (dom/find-in root ".reset-arrangement-button")) (ui-state/arranged-by-default? state))
                (show-spread! root @slider spread)))})

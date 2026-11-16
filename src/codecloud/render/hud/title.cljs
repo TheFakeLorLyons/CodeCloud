@@ -56,11 +56,12 @@
       (string/join ", " (remove nil? [placement colors])))))
 
 (defn- publish-bottom!
-  "Tells the stylesheet where the title ends, so the legend below it
-  leaves the title, its totals, and its filter in view."
+  "Tells the stylesheet where the title ends in its place, whether or not
+  it has slid away to hide, so the legend and the grid below it leave the
+  title, its totals, and its filter in view."
   [^js root]
   (.setProperty (.-style (.-documentElement js/document)) "--title-bottom"
-                (str (js/Math.ceil (.-bottom (.getBoundingClientRect root))) "px")))
+                (str (js/Math.ceil (+ (.-offsetTop root) (.-offsetHeight root))) "px")))
 
 (def panel
   {:id :title
@@ -79,7 +80,8 @@
                           [:button.text-button {:on-click #(dispatch [:clear-filter])} "Show everything"]]])]
               (.observe (js/ResizeObserver. #(publish-bottom! root)) root)
               {:root root :shown (atom nil)}))
-   :update (fn [{:keys [root shown]} {:keys [cloud-name view-filter totals-open?] snapshot :visible-snapshot :as state}]
+   :update (fn [{:keys [root shown]} {:keys [cloud-name view-filter totals-open? title-summary-hidden?] snapshot :visible-snapshot
+                                      :as state}]
              (dom/set-text! (dom/find-in root ".cloud-name") (or cloud-name "CodeCloud"))
              (dom/set-text! (dom/find-in root ".snapshot-caption") (words/snapshot-caption state))
              (let [caption (arrangement-caption state)
@@ -88,14 +90,14 @@
                (dom/set-text! caption-button (or caption "")))
              (let [toggle (dom/find-in root ".totals-toggle")
                    totals (dom/find-in root ".totals")
-                   open? (boolean (and totals-open? (:totals snapshot)))]
-               (dom/toggle-class! toggle "is-hidden" (nil? (:totals snapshot)))
+                   open? (boolean (and totals-open? (:totals snapshot) (not title-summary-hidden?)))]
+               (dom/toggle-class! toggle "is-hidden" (or title-summary-hidden? (nil? (:totals snapshot))))
                (dom/toggle-class! toggle "is-open" open?)
                (.setAttribute toggle "aria-expanded" (str open?))
                (dom/toggle-class! totals "is-open" open?)
                (when (and open? (not= snapshot @shown))
                  (reset! shown snapshot)
                  (dom/replace-children! totals (totals-table snapshot))))
-             (let [description (visibility/describe view-filter)]
+             (let [description (when-not title-summary-hidden? (visibility/describe view-filter))]
                (dom/toggle-class! (dom/find-in root ".filter-chip") "is-open" (some? description))
                (dom/set-text! (dom/find-in root ".filter-text") (or description ""))))})

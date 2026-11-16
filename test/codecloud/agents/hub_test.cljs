@@ -34,6 +34,11 @@
 (defn- result-text [result]
   (get-in result ["content" 0 "text"]))
 
+(defn- named-lines
+  "The first line each line of a summary names, in the summary's order."
+  [summary]
+  (keep #(some-> (re-find #"^\[(\d+)" %) second js/parseInt) (string/split-lines summary)))
+
 (deftest an-agent-reads-through-the-hub
   (async done
     (let [hub-holder (atom nil)
@@ -58,8 +63,17 @@
                    (agent/call-tool! @agent-holder "query_wavelet_context" {"file" "src/app/core.cljs" "center" 4})))
           (.then (fn [result]
                    (is (not (get result "isError")) (result-text result))
-                   (is (contains? (js->clj (js/JSON.parse (result-text result))) "bands")
-                       "a relative path reaches wavescope as an absolute one")
+                   (let [answer (js->clj (js/JSON.parse (result-text result)))]
+                     (is (contains? answer "bands") "a relative path reaches wavescope as an absolute one")
+                     (is (= ["fine"] (keys (get answer "bands"))) "the fine band comes alone unless every band is wanted")
+                     (is (not (contains? answer "waveletPeaks"))))
+                   (agent/call-tool! @agent-holder "get_summary_at_scale" {"file" "src/eeg/filters.py" "start" 0 "end" 38
+                                                                          "scale" 1})))
+          (.then (fn [result]
+                   (is (not (get result "isError")) (result-text result))
+                   (let [lines (named-lines (result-text result))]
+                     (is (seq lines))
+                     (is (apply <= lines) "a summary's lines come in order"))
                    (agent/call-tool! @agent-holder "get_important_positions" {"limit" 3})))
           (.then (fn [result]
                    (is (not (get result "isError")) "with neither file nor directory, the workspace folder is searched")
@@ -74,6 +88,47 @@
                    (agent/call-tool! @agent-holder "get_complexity_heatmap" {"file" "src/missing.py"})))
           (.then (fn [result]
                    (is (true? (get result "isError")) "a missing file is a failed result, not a broken session")))
+          (.catch (fn [error] (is (nil? error) (str "the hub failed: " (.-message error)))))
+          (.finally (fn []
+                      (if-let [running @hub-holder]
+                        (.finally (hub/stop! running) done)
+                        (done))))))))
+
+(deftest every-band-comes-back-when-wanted
+  (async done
+    (let [hub-holder (atom nil)
+          agent-holder (atom nil)
+          bands (atom :all)
+          description-of (fn [answer tool-name]
+                           (some #(when (= tool-name (get % "name")) (get % "description"))
+                                 (get-in answer ["result" "tools"])))
+          original-description (some #(when (= "query_wavelet_context" (get % "name")) (get % "description"))
+                                     tools/wavescope-tools)]
+      (-> (hub/start! {:address "127.0.0.1"
+                       :port 0
+                       :token token
+                       :version "test"
+                       :roots (constantly [fixture-root])
+                       :wavescope wavescope
+                       :wavescope-bands (fn [] @bands)})
+          (.then (fn [started]
+                   (reset! hub-holder started)
+                   (agent/connect! (:port started) token {"name" "claude-code" "version" "2.1.0"})))
+          (.then (fn [connected]
+                   (reset! agent-holder connected)
+                   (agent/ask! connected "tools/list" {})))
+          (.then (fn [answer]
+                   (is (= original-description (description-of answer "query_wavelet_context")))
+                   (agent/call-tool! @agent-holder "query_wavelet_context" {"file" "src/eeg/filters.py" "center" 8})))
+          (.then (fn [result]
+                   (let [answer (js->clj (js/JSON.parse (result-text result)))]
+                     (is (= #{"fine" "medium" "coarse"} (set (keys (get answer "bands")))))
+                     (is (contains? answer "waveletPeaks")))
+                   (reset! bands :fine)
+                   (agent/ask! @agent-holder "tools/list" {})))
+          (.then (fn [answer]
+                   (is (string/includes? (description-of answer "query_wavelet_context") "exact lines")
+                       "the tools describe the fine band once it comes alone")))
           (.catch (fn [error] (is (nil? error) (str "the hub failed: " (.-message error)))))
           (.finally (fn []
                       (if-let [running @hub-holder]
@@ -351,7 +406,7 @@
                        :version "test"
                        :roots (constantly [fixture-root])
                        :wavescope wavescope
-                       :reporting #(deref level)
+                       :reporting (fn [] @level)
                        :cloud (fn []
                                 (js/Promise.resolve
                                  {:snapshot snapshot :cloud-name "polyglot" :root fixture-root :workspace-roots [fixture-root]
@@ -368,7 +423,7 @@
           (.then (fn [answer]
                    (is (= 16 (count (names answer))))
                    (reset! level :agents)
-                   (hub/reporting-changed! @hub-holder)
+                   (hub/tools-changed! @hub-holder)
                    (heard-within heard "notifications/tools/list_changed")))
           (.then (fn [heard?]
                    (is heard? "connected agents hear that their tools changed")

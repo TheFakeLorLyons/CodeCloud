@@ -93,7 +93,10 @@ body {
   inset: 0;
 }
 
-#codecloud canvas {
+/* The canvas is positioned so it paints above the window layer before it
+   and below the overlay after it. */
+#codecloud > canvas {
+  position: relative;
   display: block;
   width: 100%;
   height: 100%;
@@ -367,7 +370,7 @@ body {
   display: block;
 }
 
-.sky-menu-list {
+.sky-menu-panel {
   min-width: 200px;
   padding: 6px;
   border: 1px solid var(--hairline);
@@ -422,6 +425,71 @@ body {
   color: var(--ink-soft);
 }
 
+/* Simple's color, under the environments. */
+.sky-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px 10px 4px;
+  border-top: 1px solid var(--hairline);
+}
+
+.sky-color-name {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.sky-color {
+  width: 34px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sky-color::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.sky-color::-webkit-color-swatch {
+  border: 0;
+  border-radius: 5px;
+}
+
+/* Colored toolbar icons: each icon a hue of its own, lighter on a night
+   sky and darker on a day sky, unless a setting names its color. */
+:root {
+  --icon-lightness: 0.5;
+  --icon-chroma: 0.15;
+}
+
+:root[data-sky="night"] {
+  --icon-lightness: 0.83;
+  --icon-chroma: 0.12;
+}
+
+.hud-toolbar.is-colored .icon-button {
+  color: var(--icon-color, oklch(var(--icon-lightness) var(--icon-chroma) var(--icon-hue, 250)));
+}
+
+.icon-button[data-icon="search"] { --icon-hue: 250; }
+.icon-button[data-icon="newFile"] { --icon-hue: 145; }
+.icon-button[data-icon="views"] { --icon-hue: 300; }
+.icon-button[data-icon="arrange"] { --icon-hue: 70; }
+.icon-button[data-icon="repl"] { --icon-hue: 185; }
+.icon-button[data-icon="agents"] { --icon-hue: 25; }
+.icon-button[data-icon="assistant"] { --icon-hue: 330; }
+.icon-button[data-icon="windows"] { --icon-hue: 215; }
+.icon-button[data-icon="grid"] { --icon-hue: 120; }
+.icon-button[data-icon="environment"] { --icon-hue: 85; }
+.icon-button[data-icon="wholeCloud"] { --icon-hue: 270; }
+.icon-button[data-icon="legend"] { --icon-hue: 165; }
+
 .agents-button {
   position: relative;
 }
@@ -430,7 +498,8 @@ body {
   border-color: var(--cycle-warning);
 }
 
-.agents-count {
+.agents-count,
+.grid-count {
   position: absolute;
   top: -3px;
   right: -3px;
@@ -445,8 +514,13 @@ body {
   pointer-events: none;
 }
 
-.agents-count:empty {
+.agents-count:empty,
+.grid-count:empty {
   display: none;
+}
+
+.grid-button {
+  position: relative;
 }
 
 /* Search */
@@ -1138,6 +1212,79 @@ body {
   padding: 1px 0;
 }
 
+/* Bars that hide until the pointer reaches their edge. One holding the
+   keyboard's focus, such as the toolbar while its address field is typed
+   in, stays. */
+
+.hud.is-auto-hiding .hud-title,
+.hud.is-auto-hiding .hud-toolbar,
+.hud.is-auto-hiding .hud-timeline {
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+/* Called back over the grid, the bars sit on glass, as the timeline
+   always does, so cells' headers and code below them do not show
+   through their words. The glass reaches past each bar's edges without
+   moving the bar. */
+.hud.is-auto-hiding .hud-title,
+.hud.is-auto-hiding .hud-toolbar {
+  isolation: isolate;
+}
+
+.hud.is-auto-hiding .hud-title::before,
+.hud.is-auto-hiding .hud-toolbar::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.hud.is-auto-hiding .hud-title::before {
+  inset: -6px -14px -8px -8px;
+  border-radius: 12px;
+}
+
+.hud.is-auto-hiding .hud-toolbar::before {
+  inset: -6px;
+  border-radius: 25px;
+}
+
+.hud.is-auto-hiding .hud-timeline {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.hud.is-auto-hiding:not(.is-near-top) .hud-title:not(:has(:focus-visible)),
+.hud.is-auto-hiding:not(.is-near-top) .hud-toolbar:not(:has(:focus-visible)) {
+  transform: translateY(calc(-100% - 20px));
+  opacity: 0;
+}
+
+.hud.is-auto-hiding:not(.is-near-bottom) .hud-timeline:not(:has(:focus-visible)) {
+  transform: translateY(calc(100% + 20px));
+  opacity: 0;
+}
+
+.hud.is-auto-hiding:not(.is-near-top) .hud-title:not(:has(:focus-visible)),
+.hud.is-auto-hiding:not(.is-near-top) .hud-title:not(:has(:focus-visible)) *,
+.hud.is-auto-hiding:not(.is-near-top) .hud-toolbar:not(:has(:focus-visible)),
+.hud.is-auto-hiding:not(.is-near-top) .hud-toolbar:not(:has(:focus-visible)) *,
+.hud.is-auto-hiding:not(.is-near-bottom) .hud-timeline:not(:has(:focus-visible)),
+.hud.is-auto-hiding:not(.is-near-bottom) .hud-timeline:not(:has(:focus-visible)) * {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud.is-auto-hiding .hud-title,
+  .hud.is-auto-hiding .hud-toolbar,
+  .hud.is-auto-hiding .hud-timeline {
+    transition: none;
+  }
+}
+
 /* Timeline along the bottom of the sky */
 
 .hud-timeline {
@@ -1708,6 +1855,61 @@ body {
   font-weight: 600;
 }
 
+.window-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.window-name:hover {
+  text-decoration: underline;
+}
+
+.windows-menu-item.is-off {
+  opacity: 0.6;
+}
+
+/* The list of what the cloud leaves out opens from its heading. */
+.ignored-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: -4px;
+  padding: 0 4px 0 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ignored-heading:hover {
+  background: var(--glass);
+}
+
+.ignored-heading svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 150ms ease;
+}
+
+.ignored-heading.is-open svg {
+  transform: rotate(90deg);
+}
+
+.ignored-note {
+  padding: 2px 6px 2px 28px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.ignored-list input:disabled {
+  opacity: 0.6;
+}
+
 .visibility-count {
   font-size: 12px;
   color: var(--ink-soft);
@@ -1965,16 +2167,16 @@ body {
   margin-top: 8px;
 }
 
-.put-back-button {
+.reset-arrangement-button {
   margin-top: 10px;
 }
 
-.put-back-button:disabled {
+.reset-arrangement-button:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.put-back-button:disabled:hover {
+.reset-arrangement-button:disabled:hover {
   border-color: var(--hairline);
 }
 
@@ -2023,6 +2225,15 @@ body {
 .menu-item:hover,
 .menu-item:focus-visible {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.menu-shortcut {
+  float: right;
+  margin-left: 16px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 450;
+  color: var(--ink-soft);
 }
 
 /* REPL pane */
@@ -2347,6 +2558,13 @@ body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
+}
+
+.repl-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
 .repl-line.is-input {
@@ -3614,4 +3832,458 @@ body {
 .pane-resize:hover {
   background: color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 4px;
+}
+
+/* The windows menu under the toolbar's windows button */
+
+.windows-picker {
+  position: relative;
+  display: inline-grid;
+}
+
+.windows-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  width: 320px;
+  padding: 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--lift);
+  z-index: 4;
+}
+
+.windows-menu.is-open {
+  display: block;
+}
+
+.windows-address-form label {
+  display: block;
+  margin: 0 4px 6px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.windows-address-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.windows-address-row input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--panel);
+}
+
+.windows-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+}
+
+.windows-menu-item:hover,
+.windows-menu-item:focus-visible,
+.windows-menu-close:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.windows-menu-heading {
+  margin: 10px 10px 4px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.windows-menu-entry {
+  display: flex;
+  align-items: center;
+}
+
+.windows-menu-entry .windows-menu-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.windows-menu-entry .windows-menu-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.windows-menu-close {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+/* Windows: live pages in a layer below the canvas, seen through the holes
+   it leaves. A window's corners stay square, as its hole's are. */
+
+.window-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cloud-window {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--panel-edge);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--ui-font);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+
+.cloud-window.is-active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cloud-window.is-pinned {
+  border: 0;
+  box-shadow: none;
+}
+
+.window-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--panel) 90%, var(--ink) 10%);
+  cursor: grab;
+}
+
+.cloud-window.is-pinned .window-bar {
+  display: none;
+}
+
+.window-icon {
+  display: inline-grid;
+  color: var(--ink-soft);
+}
+
+.window-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.window-address-form {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.window-address {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.window-button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.window-button:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--ink);
+}
+
+.window-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.cloud-window[data-kind="markdown"] .window-body,
+.cloud-window[data-kind="pdf"] .window-body {
+  background: var(--panel);
+}
+
+.cloud-window[data-kind="pdf"] .window-body {
+  padding: 16px;
+}
+
+.cloud-window[data-kind="image"] .window-body {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel) 85%, var(--ink) 15%);
+}
+
+.window-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+}
+
+.window-message {
+  margin: 24px;
+  color: var(--ink-soft);
+}
+
+.window-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.window-pdf-slot {
+  width: 100%;
+  margin: 0 0 14px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.window-pdf-page {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.window-markdown {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 28px 40px 56px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.window-markdown h1,
+.window-markdown h2,
+.window-markdown h3,
+.window-markdown h4 {
+  margin: 1.4em 0 0.5em;
+  font-family: var(--title-font);
+  line-height: 1.25;
+}
+
+.window-markdown h1 {
+  font-size: 2em;
+}
+
+.window-markdown h2 {
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 1.5em;
+}
+
+.window-markdown h3 {
+  font-size: 1.25em;
+}
+
+.window-markdown h4 {
+  font-size: 1.05em;
+}
+
+.window-markdown img {
+  max-width: 100%;
+}
+
+.window-markdown pre {
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--ink) 12%);
+  font-family: var(--code-font);
+  font-size: 13px;
+}
+
+.window-markdown code {
+  font-family: var(--code-font);
+  font-size: 0.92em;
+}
+
+.window-markdown table {
+  border-collapse: collapse;
+}
+
+.window-markdown th,
+.window-markdown td {
+  padding: 4px 10px;
+  border: 1px solid var(--hairline);
+}
+
+.window-markdown blockquote {
+  margin: 0;
+  padding: 0 1em;
+  border-left: 3px solid var(--hairline);
+  color: var(--ink-soft);
+}
+
+.window-markdown a {
+  color: var(--accent);
+}
+
+/* The grid: cells pinned over the view, each a header in the overlay above
+   a body the canvas or a window fills. The outline keeps the body where
+   the renderer clips its pass. */
+
+.hud-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.grid-cell {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  outline: 1px solid var(--panel-edge);
+}
+
+.grid-cell-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  font-size: 13px;
+  font-weight: 650;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.grid-cell.is-carried {
+  opacity: 0.55;
+}
+
+.grid-cell.is-carried .grid-cell-header {
+  cursor: grabbing;
+}
+
+.grid-cell.is-drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A border between cells: the gap itself takes the pointer, and a line
+   down its middle shows where it moves. */
+
+.grid-border {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.grid-border.is-column {
+  cursor: col-resize;
+}
+
+.grid-border.is-row {
+  cursor: row-resize;
+}
+
+.grid-border::after {
+  content: "";
+  position: absolute;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.grid-border.is-column::after {
+  inset: 0 3px;
+}
+
+.grid-border.is-row::after {
+  inset: 3px 0;
+}
+
+.grid-border:hover::after,
+.grid-border:active::after {
+  opacity: 0.85;
+}
+
+.grid-cell-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grid-cell-button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.grid-cell-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.grid-cell-button:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--ink);
+}
+
+.grid-cell-body {
+  flex: 1;
 }

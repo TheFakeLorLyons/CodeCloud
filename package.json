@@ -2,7 +2,7 @@
   "name": "codecloud",
   "displayName": "CodeCloud",
   "description": "See a codebase as pages of real code floating among folder clouds, colored by folder or language, and zoom between the cloud and the editor.",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "publisher": "lorelailyons",
   "author": "Lorelai Lyons",
   "license": "MIT",
@@ -128,6 +128,23 @@
         "category": "CodeCloud"
       },
       {
+        "command": "codecloud.openInCloud",
+        "title": "Open in the Cloud",
+        "category": "CodeCloud",
+        "icon": "$(window)"
+      },
+      {
+        "command": "codecloud.showWebPage",
+        "title": "Show a Web Page in the Cloud",
+        "category": "CodeCloud",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "codecloud.runCommandForPage",
+        "title": "Run a Command for the Page",
+        "category": "CodeCloud"
+      },
+      {
         "command": "codecloud.connectAgent",
         "title": "Connect an Agent",
         "category": "CodeCloud",
@@ -249,6 +266,18 @@
           "command": "codecloud.createCloudFile",
           "when": "explorerResourceIsFolder",
           "group": "codecloud@3"
+        },
+        {
+          "command": "codecloud.openInCloud",
+          "when": "resourceExtname =~ /^\\.(avif|bmp|gif|htm|html|jpeg|jpg|markdown|md|pdf|png|svg|webp)$/i && !explorerResourceIsFolder",
+          "group": "codecloud@4"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "codecloud.openInCloud",
+          "when": "resourceExtname =~ /^\\.(avif|bmp|gif|htm|html|jpeg|jpg|markdown|md|pdf|png|svg|webp)$/i",
+          "group": "codecloud@1"
         }
       ],
       "commandPalette": [
@@ -267,6 +296,12 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "codecloud.runCommandForPage",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "activeCustomEditorId == 'codecloud.cloud'"
+      },
       {
         "command": "codecloud.zoomOut",
         "key": "ctrl+alt+-",
@@ -383,7 +418,8 @@
                 "twilight",
                 "night",
                 "clock",
-                "backrooms"
+                "backrooms",
+                "night-library"
               ],
               "enumDescriptions": [
                 "A plain backdrop, folders as flat discs, and 30 frames a second, easy on large codebases and modest computers.",
@@ -392,7 +428,8 @@
                 "Always a sunset sky, with night pages.",
                 "Always a night sky.",
                 "Follow the local time of day, with dusk and dawn between.",
-                "Yellow wallpaper, damp carpet, and humming lights, room after room."
+                "Yellow wallpaper, damp carpet, and humming lights, room after room.",
+                "Dark wood, red carpet, and warm lamps, aisle after aisle."
               ]
             },
             {
@@ -400,7 +437,61 @@
               "description": "The name of a space in codecloud.spaces."
             }
           ],
-          "markdownDescription": "What the cloud floats in. `simple` draws the least, for large codebases and modest computers, the skies draw clouds, sun, moon, and stars, `backrooms` draws an endless office, and the name of a space in `#codecloud.spaces#` draws that space. The sky button in the cloud changes this setting too, and resting the pointer on it lists every choice."
+          "markdownDescription": "What the cloud floats in. `simple` draws the least, for large codebases and modest computers, the skies draw clouds, sun, moon, and stars, `backrooms` draws an endless office, `night-library` a library after closing time, and the name of a space in `#codecloud.spaces#` draws that space. The sky button in the cloud changes this setting too, and resting the pointer on it lists every choice."
+        },
+        "codecloud.simpleColor": {
+          "type": "string",
+          "default": "",
+          "pattern": "^(#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6})?$",
+          "patternErrorMessage": "A color such as #1b2340, or nothing for the editor theme's colors.",
+          "markdownDescription": "The color of the **Simple** backdrop overhead, such as `#1b2340`, brightening toward the horizon. Pages take their day look on a light color and their night look on a dark one. Empty follows the editor theme. The color row under the sky button's list changes this setting too."
+        },
+        "codecloud.toolbarColors": {
+          "type": [
+            "string",
+            "object"
+          ],
+          "default": "colored",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+          },
+          "markdownDescription": "The colors of the icons at the top right of the cloud. `colored` gives each icon a color of its own, and `plain` draws every icon in the text color, white with dark themes. The Views pane's **Color the toolbar's icons** switches between `colored` and `plain`. An object names colors over the built-in ones, by `search`, `newFile`, `views`, `arrange`, `repl`, `agents`, `assistant`, `windows`, `grid`, `environment`, `wholeCloud`, and `legend`, with `all` for every icon it leaves out, so `{\"all\": \"#ffffff\"}` makes them all white."
+        },
+        "codecloud.pageCommands": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "title"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "The command's name in a page's right-click menu."
+              },
+              "command": {
+                "type": "string",
+                "description": "A VS Code command's id, run with the page's file in the editor at the caret, as from the file's own editor."
+              },
+              "args": {
+                "description": "What the command receives, as a keybinding's args give it."
+              },
+              "shell": {
+                "type": "string",
+                "description": "A command line run in a terminal in the cloud's folder, with ${file}, ${relativeFile}, and ${line} put in."
+              },
+              "window": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "description": "A web address, or a port on this computer, to show in a window once the command has run."
+              }
+            }
+          },
+          "markdownDescription": "Commands each page's right-click menu offers for its file. A `command` runs with the file in the editor at the caret, so commands that read the editor, such as Calva's, work on the page; a `shell` command line runs in a terminal. A `window` shows that address, or a port on this computer, once the command has run, as `{\"title\": \"Clay: show this file\", \"command\": \"calva.runCustomREPLCommand\", \"args\": {\"snippet\": \"(scicloj.clay.v2.api/make! {:source-path \\\"$file\\\"})\"}, \"window\": 1971}` does. **Run a command…** in the same menu runs any other command."
         },
         "codecloud.spaces": {
           "type": "array",
@@ -631,6 +722,19 @@
           ],
           "default": "full",
           "markdownDescription": "How much agents connected to the hub report about their work, also set from the Coworkers pane. Each report costs the agent tokens, so quieter levels cost less, and at every level the cloud still shows what agents read through the hub and the changes they make. Connected agents list their tools again at once; the hub's instructions reach agents that connect afterwards."
+        },
+        "codecloud.agents.wavescopeBands": {
+          "type": "string",
+          "enum": [
+            "fine",
+            "all"
+          ],
+          "enumDescriptions": [
+            "The exact lines nearest the line asked about, which costs agents the fewest tokens.",
+            "The exact lines, the signatures and sections further out, and the strongest peaks nearby, which help agents find their way in a large codebase."
+          ],
+          "default": "fine",
+          "markdownDescription": "How much of wavescope's view around a line `query_wavelet_context` and `get_cursor_context` give agents, also set from the Coworkers pane."
         }
       }
     }
@@ -646,6 +750,7 @@
   "devDependencies": {
     "@vscode/vsce": "4.0.0",
     "esbuild": "0.28.2",
+    "pdfjs-dist": "6.5.438",
     "three": "0.186.1",
     "wavescope-mcp": "1.0.14",
     "web-tree-sitter": "0.27.1"

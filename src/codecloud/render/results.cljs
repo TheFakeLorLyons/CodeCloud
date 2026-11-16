@@ -45,7 +45,7 @@
                        :let [page-object (pages/page-of page-layer namespace-id)]
                        :when (and page-object (readable? page-object))
                        :let [point (editing-view/line-screen-point page-object path line column)]
-                       :when point]
+                       :when (and point (not (pages/hidden-at? page-object point)))]
                    [result point page-object]))
         placed-count (count placed)]
     (doseq [[index [result [x y] page-object]] (map-indexed vector placed)]

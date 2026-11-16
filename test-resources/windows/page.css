@@ -1,0 +1,4 @@
+body { margin: 0; font-family: system-ui, sans-serif; background: #fbf7ef; color: #2d2a24; }
+main { max-width: 640px; margin: 48px auto; padding: 0 24px; }
+h1 { font-size: 34px; color: #4c7a3a; }
+button { padding: 10px 16px; border: 0; border-radius: 8px; background: #4c7a3a; color: white; font-size: 16px; }

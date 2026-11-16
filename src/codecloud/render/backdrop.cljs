@@ -37,7 +37,9 @@
   (let [kind (if (contains? kinds (:backdrop environment)) (:backdrop environment) :plain)
         part (made! backdrop kind)]
     (set! (.-material mesh) (:material part))
-    ((get-in kinds [kind :update!]) part camera (assoc frame-info :space (:space environment)))))
+    ((get-in kinds [kind :update!]) part camera (assoc frame-info
+                                                     :space (:space environment)
+                                                     :gradient (:gradient environment)))))
 
 (defn send-for!
   "Sends a visitor of `kind`, :flock or :plane, across the sky backdrop."

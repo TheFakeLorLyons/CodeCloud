@@ -3,8 +3,10 @@
   from wavescope-mcp, described in CodeCloud's words and taking paths
   relative to the workspace as well as absolute ones. The hub resolves
   each path before passing a call on to wavescope, whose own argument
-  names and limits the schemas keep. The cloud's own tools are
-  codecloud.agents.cloud-tools'."
+  names and limits the schemas keep, and reshapes two of wavescope's
+  answers on the way back: the code around a line keeps only its fine
+  band unless every band is wanted, and a summary's lines come in order.
+  The cloud's own tools are codecloud.agents.cloud-tools'."
   (:require [clojure.string :as string]
             [codecloud.agents.presence :as presence]))
 
@@ -155,6 +157,80 @@
                                  "limit" {"type" "integer" "minimum" 1 "maximum" 50 "default" 10
                                           "description" "Most landmarks to return"}}}
     "annotations" read-only}])
+
+(def wavescope-bands
+  "How much of wavescope's view around a line agents get, smallest
+  first: :fine, the lines nearest it in full, or :all, adding the
+  signatures and sections further out and the strongest peaks nearby,
+  which help most in a large codebase."
+  [:fine :all])
+
+(def band-tools
+  "wavescope's tools answering with bands at several resolutions around
+  a line."
+  #{"query_wavelet_context" "get_cursor_context"})
+
+(def ^:private fine-band-descriptions
+  "What the tools reading around a line say of themselves while they
+  return the fine band alone."
+  {"query_wavelet_context" (str "The exact lines of a file nearest one line, a fifth of the radius on either side and "
+                                "at least ten. Reads part of a file without reading all of it; get_summary_at_scale "
+                                "outlines a longer range.")
+   "get_cursor_context" (str "The exact lines nearest the person's caret, in the file it is in, or in another file it "
+                             "was last in when that file is named.")})
+
+(defn listed-wavescope-tools
+  "wavescope's tools as agents see them, those reading around a line
+  described for `bands`, one of wavescope-bands."
+  [bands]
+  (if (= :all bands)
+    wavescope-tools
+    (mapv (fn [tool]
+            (if-let [description (get fine-band-descriptions (get tool "name"))]
+              (assoc tool "description" description)
+              tool))
+          wavescope-tools)))
+
+(defn fine-band-only
+  "wavescope's answer about the code around a line, parsed with string
+  keys, keeping of its bands the fine one alone and leaving out its
+  peaks, which mostly repeat the fine band's lines."
+  [answer]
+  (if (map? (get answer "bands"))
+    (-> answer
+        (update "bands" select-keys ["fine"])
+        (dissoc "waveletPeaks"))
+    answer))
+
+(defn summary-by-line
+  "get_summary_at_scale's text with its lines in the order of the lines
+  they name. wavescope lists a summary's peaks strongest first and marks
+  the gaps between them in that order, so the peaks are sorted and the
+  gaps between them marked again over the same range. Text holding no
+  peaks, such as the summary of a range without any, comes back as it
+  is."
+  [text]
+  (let [read-entry (fn [line]
+                     (if-let [[_ position content] (re-matches #"\[(\d+)\] (.*)" line)]
+                       {:peak (parse-long position) :content content}
+                       (when-let [[_ first-line last-line] (re-matches #"\[(\d+)-(\d+)\] \.\.\." line)]
+                         {:gap [(parse-long first-line) (parse-long last-line)]})))
+        entries (map read-entry (string/split-lines text))
+        peaks (->> entries (filter :peak) (sort-by :peak) (partition-by :peak) (map first))]
+    (if (or (empty? peaks) (some nil? entries))
+      text
+      (let [named-lines (mapcat #(if (:peak %) [(:peak %)] (:gap %)) entries)
+            range-end (apply max named-lines)
+            gap (fn [first-line last-line] (str "[" first-line "-" last-line "] ..."))
+            [parts last-shown] (reduce (fn [[parts previous] {:keys [peak content]}]
+                                         [(cond-> parts
+                                            (> peak (inc previous)) (conj (gap (inc previous) (dec peak)))
+                                            true (conj (str "[" peak "] " content)))
+                                          peak])
+                                       [[] (dec (apply min named-lines))]
+                                       peaks)]
+        (string/join "\n" (cond-> parts
+                             (< last-shown range-end) (conj (gap (inc last-shown) range-end))))))))
 
 (defn wavescope-read
   "What a call of wavescope's `tool-name` read, as {:path :start :end

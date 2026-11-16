@@ -28,16 +28,16 @@ Forever free, forever open source, forever opposed to exploitation and oligarchy
 
 | | |
 | --- | --- |
-| Version | 0.4.2, pre-alpha |
+| Version | 0.4.3, pre-alpha |
 | Languages highlighted | 19 |
 | Languages read in depth* | 9 |
 | Arrangements** | 7 |
 | Color layers | 6 built in, plus any the cloud file defines |
-| Environments | 7 built in, plus rooms described in settings |
-| Source | 33,100 lines of Clojure and ClojureScript in 165 namespaces, 80 of them as `.cljc` files |
-| Tests | 292 tests, 33,548 assertions |
-| Download | 2.0 MB |
-| Network use | None by default; analysis runs on the local machine, the agent hub listens only on 127.0.0.1, and the assistant talks only to the model provider you add |
+| Environments | 8 built in, plus rooms described in settings |
+| Source | 36,500 lines of Clojure and ClojureScript in 176 namespaces, 84 of them as `.cljc` files |
+| Tests | 330 tests, 33,787 assertions |
+| Download | 2.5 MB |
+| Network use | None by default; analysis runs on the local machine, the agent hub and the server for HTML windows listen only on 127.0.0.1, the assistant talks only to the model provider you add, and windows load only what you open in them |
 
 > *Q: "What does 'in depth' mean?" \
 > *A: In depth, above, refers to the fact that this program requires adapters for each language that you want to be able to edit in the cloud view. "Languages Highlighted" means it will interpret those files as source code, but it does not yet have the ability to edit the code from the cloud view. -Those programs are listed later in this readme. \
@@ -71,16 +71,19 @@ Forever free, forever open source, forever opposed to exploitation and oligarchy
 | New files | Made from the toolbar or a right-click, in the folder you are working in, a Clojure file starting with its `ns` form and opening for editing |
 | REPL | Tabs of REPLs, of Calva's own REPL, and of shells over the sky, in the namespace of the page clicked last, with evaluation on Calva's keys from the page being edited or from VS Code's editor, each result shown after the code it came from |
 | AI agents | An MCP hub inside VS Code that Claude Code, opencode, Codex, VS Code's own agents, and any other MCP client connect to, serving the cloud's own tools for the codebase's shape, its pages, uses, and your focus, and wavescope's views of code at several resolutions |
-| Agents at work | Each agent's badge beside the line it works at, bands over what it read, a glow on what it changed, pins it leaves for you, Follow, and the Coworkers pane |
+| Agents at work | Each agent's badge beside the line it works at, bands over what it read, a glow on what it changed, and pins it leaves for you, on pages in the cloud and in the grid alike, with Follow and the Coworkers pane |
 | Assistant | A pane in the cloud answering questions about the codebase with a model from Anthropic or any service speaking OpenAI's chat completions API, reading through the agent hub's tools, the places it names a click away |
 | Zoom portal | Ctrl+- from a file into the cloud at the same line, and a scroll into a page opens its file |
 | Editor theme colors | The theme's syntax colors, font styles, and bracket pair colors, fitted to either sky |
 | History | Recent commits, stepped through or played, with pages moving as the code changes |
-| Views and filters | Named views, toggles for each language, folder, and page, and **Save view** |
+| Views and filters | Named views, toggles for each language, folder, and page, **Save view**, and switches for names only, for hiding the totals and hidden folders under the cloud's name, for the toolbar's colors, and for hiding the toolbars until the pointer reaches them, the open windows, each shown in the cloud or hidden there, and what the cloud leaves out, any of it brought in gray |
 | Finding and reading | Search, a names-only mode, an inspector that minimizes to its header, totals by language, a legend, and context menus |
+| Windows | Web pages, HTML files with their scripts and styles, Markdown, PDFs, and images floating in the cloud beside the code, each kept current as its file or page changes, and a local server's page waiting while the server starts |
+| Page commands | Any command VS Code's extensions offer, Calva's and Calva Power Tools' among them, run for a page's file from its right-click menu or with Ctrl+Alt+R or `C` as from the file's editor, command lines run in a terminal, and a window shown for what they serve |
+| The grid | Up to four pages or windows pinned to the screen side by side, as VS Code splits its editors, rearranged by their headers and resized by the borders between them, the pages at the editor's size and open for editing |
 | Side panes | Views, Arrange, Coworkers, the assistant, and the inspector open together in a dock on the right, each minimizing to its header, with the borders between them and the dock's edge dragged to resize |
-| Layout by hand | Pages moved anywhere and spacing opened or closed, remembered for each cloud |
-| Environments | **Simple**, the first look, light enough for large codebases and modest computers; skies by day, at twilight, by night, by the clock, or by the editor theme, with birds and airplanes and a still sky for reduced motion; the **Backrooms**; and rooms or mazes described in settings, all listed when the pointer rests on the sky button |
+| Layout by hand | Pages moved anywhere while the cloud is open, and spacing opened or closed, remembered for each cloud, with **Reset to default** putting both back |
+| Environments | **Simple**, the first look, light enough for large codebases and modest computers, in the editor theme's colors or one you choose; skies by day, at twilight, by night, by the clock, or by the editor theme, with birds and airplanes and a still sky for reduced motion; the **Backrooms**; the **Night Library**; and rooms or mazes described in settings, all listed when the pointer rests on the sky button |
 
 > *-Note that the above arrangements are the currently included arrangements of files.
 
@@ -106,10 +109,14 @@ Java, Kotlin, C#, Go, Rust, Ruby, PHP, Lua, R, and Julia show as highlighted pag
 | --- | --- |
 | Drag | Orbit |
 | Right-drag or Shift-drag | Pan |
-| Scroll | Zoom toward the pointer; past editor size, open the file at that line |
+| Scroll | Zoom toward the pointer; past editor size, open the file at that line; over a pinned page, scroll it |
 | Click a page or folder cloud | Bring it closer |
 | Double-click | Fly there |
 | Ctrl-drag or Alt-drag | Move a page |
+| Click a window | Use it until the pointer leaves it |
+| Drag a window's bar | Move the window |
+| Drag a grid cell's header | Trade places with the cell it is dropped on |
+| Drag the gap between grid cells | Resize the cells beside it; double-click it to even them |
 | Ctrl-click or Cmd-click a name | Fly to its definition |
 | Click readable code | Edit in place; Esc clears results and notices, then stops |
 | Tab while editing Clojure | Format the top-level form at the caret; with a selection, or in other languages, indent |
@@ -121,8 +128,9 @@ Java, Kotlin, C#, Go, Rust, Ruby, PHP, Lua, R, and Julia show as highlighted pag
 | Ctrl+Alt+Enter, Shift+Alt+Enter, or Ctrl+Shift+Alt+Enter while editing | Evaluate the enclosing form, the top-level form, or the file up to the caret, closing the brackets open there |
 | Ctrl+Alt+C, then Enter or Shift+Enter, while editing | Load/evaluate current file, alone or with its requires/dependencies |
 | Ctrl+Alt+C, then Ctrl+Alt+D, while editing | Interrupt the evaluations |
-| Right-click | Actions for the page, folder, or sky |
-| `/`, `N`, `A`, `R`, `Q`, `?` | Search, names only, arrange panel, REPL, assistant, legend |
+| Right-click | Actions for the page, window, folder, or sky |
+| Ctrl+Alt+R (Cmd+Alt+R on macOS) | Run a command from any extension for the page in hand, even while a pane holds the keyboard |
+| `/`, `N`, `A`, `R`, `Q`, `G`, `T`, `C`, `?` | Search, names only, arrange panel, REPL, assistant, grid, auto-hide the toolbars, a command for the page in hand, legend |
 | `[` and `]` | Close the cloud up or open it out |
 | The sky button | Click for the next environment, or rest the pointer on it and pick one from the list |
 | Home | Show the whole cloud |
@@ -142,6 +150,52 @@ Enter starts each Clojure line where cljfmt puts it, the rule Calva's formatter 
 Problems VS Code knows of, such as clj-kondo's warnings through Calva or clojure-lsp, underline the code they cover, red for errors, amber for warnings, and blue for information. Rest the pointer on the line to read them, even while editing.
 
 The new file button on the toolbar, and **New file** in the right-click menus of pages, folders, and the sky, make a file. VS Code's input box asks for its path, starting in the folder you are working in, and makes any folders the path names. A Clojure file starts with the `ns` form its place implies, and its page comes closer with the caret ready below that form.
+
+## Windows and the grid
+
+A window floats in the cloud beside the code and shows a web page or a file from the workspace folder. The toolbar's windows button opens a menu with a field for a web address, a choice of file, and the open windows, each flown to by a click. **Open in the Cloud**, in the right-click menus of VS Code's explorer and of an editor's title, shows the file clicked in a window of its cloud, and **Show a Web Page in the Cloud** asks for an address. A port alone, such as `1971`, in either place stands for `http://localhost:1971`.
+
+| Window | Shows | Kept current |
+| --- | --- | --- |
+| Web page | The page at its address, a local server's reached as VS Code reaches it, through a forwarded port in a remote workspace | By its reload button |
+| HTML file | The page with the scripts, styles, and pictures beside it, from a server that listens on 127.0.0.1 and answers only under a random path | When any file in its folder changes |
+| Markdown | The document, with its headings, tables, code, links, and pictures | As it is typed in VS Code's editor |
+| PDF | Each page, drawn by pdf.js as it scrolls near the view | When the file changes |
+| Image | PNG, JPEG, GIF, WebP, AVIF, BMP, and SVG | When the file changes |
+
+A window for a server on this computer waits while nothing answers at its port yet, trying each second for five minutes, so a window opened beside the command that starts its server shows the page once the server is up. A web address in the REPL pane's output is a link, and a click shows its page in a window.
+
+The Views pane lists the open windows under its folders. A window's box hides it from the cloud while it stays open, and a hidden window pinned to the grid still shows in its cell; a click on a window's name shows it and flies there.
+
+A window faces the camera wherever it floats. A click on it lets the pointer through, so its page scrolls and its links, buttons, and fields work, until the pointer leaves it. Dragging its bar moves it, its buttons reload it, pin it to the grid, open it in VS Code or the browser, and close it, and a double-click flies to it. Each cloud remembers its windows and where they float.
+
+**Pin to the grid**, in the right-click menu of a page or a window, fixes it to the screen beside up to three others, as VS Code splits its editors. One fills the view, two share it in columns, a third stacks with the second on the right, and a fourth makes two rows of two. Dragging a cell's header onto another cell trades their places, dragging the gap between cells resizes them, and a double-click on the gap evens them out. A pinned page shows its code at the editor's size in one column, the scroll wheel scrolls it, and a click on its code edits it as anywhere in the cloud; a pinned window works as it does in the cloud. A page's header opens its file in VS Code, a window's reloads it, and either sends its cell back to the cloud. `G`, or the toolbar's grid button, which counts what is pinned, shows and hides the grid, and each cloud remembers what its grid holds and where its borders stand. **Auto-hide the toolbars**, in the Views pane, hides the toolbar, the cloud's name, and the timeline until the pointer reaches the top or bottom edge, as a taskbar hides, and the grid fills the whole view meanwhile.
+
+## Commands for a page
+
+**Run a command…**, in a page's right-click menu, lists the commands VS Code's extensions offer, labeled as the command palette labels them, and runs the one chosen as though from the page's own editor. The file shows in the editor group holding the cloud, its caret where the cloud's caret stands or at its first line, the command runs, and the cloud returns once it finishes. Commands that act on the editor's file, as Calva's and Calva Power Tools' **Clay: Watch file** do, act on the page this way. **CodeCloud: Run a Command for the Page**, Ctrl+Alt+R or Cmd+Alt+R in the cloud, or `C` while nothing is typed, offers the same list for the page in hand, the one being edited, brought closer, or under the pointer, without the right-click; the menu shows the keys beside **Run a command…**. The cloud answers those keys itself, before VS Code and any extension's keybindings see them, so they work while a pane holds the keyboard as well.
+
+The `codecloud.pageCommands` setting puts commands of your own in every page's menu. Each has a `title`, and either a VS Code `command` with any `args` a keybinding would give it, or a `shell` command line, which runs in a terminal of its own in the cloud's folder with `${file}`, `${relativeFile}`, and `${line}` replaced by the page's place. A `window`, a web address or a port alone, shows in a window once the command runs, waiting for a server the command starts.
+
+```json
+"codecloud.pageCommands": [
+  {
+    "title": "Clay: show this file",
+    "command": "calva.runCustomREPLCommand",
+    "args": { "snippet": "(scicloj.clay.v2.api/make! {:source-path \"$file\"})" },
+    "window": 1971
+  },
+  {
+    "title": "Serve this folder",
+    "shell": "python3 -m http.server 8000 --bind 127.0.0.1",
+    "window": 8000
+  }
+]
+```
+
+## What the cloud leaves out
+
+**Ignored**, at the foot of the Views pane and closed until opened, lists what the cloud leaves out, from folders and files git ignores and folders CodeCloud always passes over, such as `node_modules` and `.venv`, to what the cloud file's `:ignore` names and files of a kind CodeCloud does not read, such as `.gitignore` or a Markdown note. Each says which, and pictures, archives, and other files holding no text stay off the list. A folder opens to what it holds, and a box brings a folder or a file into the cloud, a file of a kind no language claims as plain text. Its pages show gray in a plain cloud, the inspector says why, and a box inside a chosen folder stays checked until the folder's box is cleared. Each cloud remembers what was brought in, and its own files come first under the limit on how many files a cloud reads.
 
 ## The REPL
 
@@ -193,15 +247,17 @@ CodeCloud runs an MCP server, the agent hub, inside VS Code, so AI agents can le
 
 | wavescope's tool | Returns |
 | --- | --- |
-| `query_wavelet_context` | A file around one line at three resolutions |
-| `get_summary_at_scale` | A range of lines compressed to its structure |
+| `query_wavelet_context` | The exact lines of a file around one line, or with the medium and coarse bands, three resolutions |
+| `get_summary_at_scale` | A range of lines compressed to its structure, in order of line |
 | `get_important_positions` | The landmarks of a file, or of the whole workspace |
 | `diff_wavelet_context` | How a file's structure changed between git revisions |
 | `get_complexity_heatmap` | Each line's structural density |
-| `get_cursor_context` | The three resolutions around your caret |
+| `get_cursor_context` | The exact lines around your caret, or with the medium and coarse bands, three resolutions |
 | `get_cursor_important_positions` | The landmarks nearest your caret |
 
 The cloud's tools count lines from 1, as editors do, and wavescope's count from 0. Paths may be relative to the workspace folder, and the hub refuses any path outside the workspace's folders.
+
+wavescope answers a read around a line with three bands, the exact lines nearest it, the signatures further out, and the sections beyond, and with its strongest peaks, which mostly repeat the exact lines. The hub passes on the exact lines alone, which costs agents far fewer tokens. **Add the medium and coarse bands**, in the Coworkers pane, or `codecloud.agents.wavescopeBands` set to `all`, passes on everything, which helps agents find their way in a large codebase. wavescope lists a summary's lines by the strength of their peaks, and the hub puts them back in order of line.
 
 The cloud shows where agents work. Each agent wears a badge of its initials beside the line it read, announced, or changed last, with a line saying what it is doing. What an agent reads through the hub gets a band that fades over four minutes, and a change no person made glows on its lines for a quarter hour, with a chip counting the lines added and removed. CodeCloud credits each change to the agent that read or announced its file last, and says the credit is a guess. Agents never move the camera, so a pin from `point_out` waits at its line until you click it. **Follow** keeps the camera on one agent until you move it, its line framed in the part of the view the panes leave, or its page whole when the agent read the whole file, and the Coworkers pane lists the agents, their pins, and what they did lately.
 
@@ -251,15 +307,21 @@ The assistant reaches the hub as one more MCP client, named for its model, so it
 | --- | --- | --- |
 | `codecloud.zoomOutThreshold` | 150 | How far, in percent, the editor zooms out before the cloud opens |
 | `codecloud.useStandardZoomKeys` | true | Ctrl+- and Ctrl+= zoom covered files toward the cloud and back |
-| `codecloud.sky` | simple | `simple`, `auto`, `day`, `twilight`, `night`, `clock`, `backrooms`, or the name of a space in `codecloud.spaces` |
+| `codecloud.sky` | simple | `simple`, `auto`, `day`, `twilight`, `night`, `clock`, `backrooms`, `night-library`, or the name of a space in `codecloud.spaces` |
+| `codecloud.simpleColor` | | The color of the **Simple** backdrop overhead, such as `#1b2340`; empty follows the editor theme |
 | `codecloud.spaces` | [] | Rooms or mazes of rooms for the cloud to float in |
 | `codecloud.editorColors` | false | Draw code in the editor theme's colors |
+| `codecloud.toolbarColors` | colored | `colored` gives each icon at the top right a color of its own, `plain` draws them in the text color, and an object such as `{"all": "#ffffff"}` names colors by icon; the Views pane switches between the first two |
+| `codecloud.pageCommands` | [] | Commands in each page's right-click menu, VS Code commands or command lines, each with a window to show if it names one |
 | `codecloud.historyLimit` | 60 | Most commits on the timeline |
 | `codecloud.agents.enabled` | true | Run the agent hub |
 | `codecloud.agents.address` | 127.0.0.1 | Where the agent hub listens; `0.0.0.0` reaches other computers |
 | `codecloud.agents.port` | 0 | The agent hub's port; 0 keeps the workspace's own |
 | `codecloud.agents.reporting` | full | How much agents report of their work: `full`, `agents`, `brief`, or `off` |
+| `codecloud.agents.wavescopeBands` | fine | What wavescope's reads around a line give agents: `fine`, the exact lines alone, or `all`, with the medium and coarse bands and the peaks |
 | `codecloud.assistant.cacheLifetime` | 5m | How long Anthropic keeps the assistant's conversation cached, `5m` or `1h` |
+
+The color row at the foot of the sky button's list picks Simple's color, which `codecloud.simpleColor` keeps. Pages take their day look on a light color and their night look on a dark one, and **Default** returns Simple to the editor theme's colors.
 
 A space in `codecloud.spaces` is one room around the cloud, or rooms in every direction with walls placed at random between them. Each surface takes a color and one of the patterns `plain`, `stripes`, `grid`, `tiles`, `checks`, `dots`, `carpet`, or `wallpaper`, `light` says whether pages take their day or night look, and whatever a space leaves out comes from a plain room with lamps in its ceiling. Spaces join the sky button's list as soon as the setting changes.
 
@@ -286,6 +348,9 @@ A space in `codecloud.spaces` is one room around the cloud, or rooms in every di
 | Zoom Out Toward the Cloud, Zoom Back In | One step of the zoom keys |
 | Create Cloud Here, Edit Cloud Settings, Refresh Cloud | Make, open, or reread a cloud file |
 | Show Only These in the Cloud, Hide in the Cloud, Show Everything in the Cloud | Filter from the explorer |
+| Open in the Cloud | Show an HTML, Markdown, PDF, or image file in a window of its cloud |
+| Show a Web Page in the Cloud | Show a web address, or a port on this computer, in a window of the cloud in front |
+| Run a Command for the Page | Offer every command extensions contribute and run the one picked for the page in hand, as from its editor; Ctrl+Alt+R or `C` in the cloud |
 | Connect an Agent | Connect an MCP client to the agent hub, copy its address or token, or replace the token |
 | Choose the Assistant's Model | Choose the model the assistant uses, or add or remove a provider |
 | Evaluate the Form at the Caret, Evaluate the Enclosing Form, Evaluate the Top-Level Form | Evaluate from VS Code's editor through the cloud's REPL |
@@ -331,6 +396,7 @@ The measurements are `:lines`, `:functions`, `:definitions`, `:references`, `:de
 | 0.4.0 | C and C++ through tree-sitter, editor theme colors, faster analysis |
 | 0.4.1 | C and C++ headers as pages of their own, C++ modules, one line per dependency, go to definition, the REPL pane with results shown in place, and a caret that stays put |
 | 0.4.2 | The agent hub and its tools, agents shown at work, the assistant, Calva-style editing, evaluation, and REPL sharing, the dock, Simple and the Backrooms, and color layers by flag |
+| 0.4.3 | Windows of web pages, HTML, Markdown, PDFs, and images, the grid, commands for a page, toolbars that hide, Ctrl+Alt+R in the cloud, and the Ignored list |
 
 | TODOs | State |
 | --- | --- |
@@ -338,7 +404,9 @@ The measurements are `:lines`, `:functions`, `:definitions`, `:references`, `:de
 | Architecture view of components and interop seams | Planned |
 | Role highlighting of state, logic, models, and views | Planned |
 | Workbench, a full-screen editor with the cloud in a corner | Stretch goal |
-| Listing in an extension registry | Not yet published |
+| Jupyter notebooks as windows | Planned |
+| A whiteboard in the cloud | Planned |
+| The code a project depends on, such as `clojure.core`, as pages tinted apart from its own | Planned |
 
 | Known limit | Effect |
 | --- | --- |
@@ -359,6 +427,11 @@ The measurements are `:lines`, `:functions`, `:definitions`, `:references`, `:de
 | ChatGPT's app | Reaches only MCP servers on the internet, so OpenAI's models reach the hub through Codex |
 | Credit for changes | A guess from which agent read the file last; while an agent is connected, a rename or a replace across files made in VS Code can count as an agent's change, and a write under unsaved changes glows the whole file |
 | The assistant's conversation | Lasts while its cloud stays open; closing the cloud or VS Code ends it |
+| Web pages that forbid framing | Many large sites, sign-in pages, and Jupyter servers left at their defaults refuse to show inside another page, so their windows stay blank or show the browser's refusal; **Open in the browser** shows them |
+| Plain http pages from other computers | VS Code's views may block them as mixed content; https pages and servers on this computer show |
+| Views of other extensions | Notebooks, previews, and other views drawn by extensions cannot show as windows |
+| Page commands | A VS Code command shows the page's file in place of the cloud until it finishes, so a command waiting on a notice it shows keeps the file in front until the notice closes |
+| Pictures in Markdown windows | Show from the workspace folder and from https addresses |
 | Models without tool calls | A server refuses a request offering tools to a model that cannot call them, and the pane shows its answer; such a model needs the hub turned off |
 
 ## Building from source
@@ -369,7 +442,7 @@ The build calls the ClojureScript compiler directly and bundles with esbuild. It
 npm install
 clojure -M:build release            # dist/extension.js, dist/webview.js, and dist/wavescope.mjs
 clojure -M:build test               # tests on Node
-npx vsce package                    # codecloud-0.4.2.vsix
+npx vsce package                    # codecloud-0.4.3.vsix
 clojure -M:build cli harness        # command-line analyzer and browser harness
 node dist/cli.js summary path/to/project
 node dist/cli.js bundle path/to/project --history 20   # then open dev/index.html?data=project
@@ -380,10 +453,10 @@ node dist/cli.js bundle path/to/project --history 20   # then open dev/index.htm
 | `codecloud.languages` | The catalog, one lexer with a lexicon per language, and an adapter per language holding its structure |
 | `codecloud.model` | Reading, import resolution, the graph, and measurements, all portable `.cljc` |
 | `codecloud.presentation` | The view model as pure functions |
-| `codecloud.render` | three.js drawing, input, and panels, with a module for each kind of backdrop |
+| `codecloud.render` | three.js drawing, input, and panels, with a module for each kind of backdrop, and the windows and the grid |
 | `codecloud.agents` | The agent hub: MCP messages, the roster of agents, where they work, and the tools they get, the cloud's own among them as a registry of one namespace per tool |
 | `codecloud.assistant` | The assistant apart from VS Code: providers, streamed replies, conversations, and runs through the hub's tools |
-| `codecloud.io`, `codecloud.vscode` | Files, git, tree-sitter, nREPL and MCP connections, and the VS Code host, its handlers for the view's messages grouped by feature |
+| `codecloud.io`, `codecloud.vscode` | Files, git, tree-sitter, nREPL and MCP connections, the server for HTML windows, and the VS Code host, its handlers for the view's messages grouped by feature |
 | `codecloud.protocol` | EDN messages between view and host |
 
 ## Making your own
@@ -397,6 +470,7 @@ Settings and the cloud file cover the common cases without a build. A question s
 | A color layer | An entry under `:color-layers` in the cloud file |
 | A built-in environment | A map in `built-in` in `codecloud.presentation.environments`, naming its backdrop, light, and how folders gather |
 | A kind of backdrop | A module under `codecloud.render` with a create function and an update function, named in `kinds` in `codecloud.render.backdrop` |
+| A kind of window | Its size in `window-sizes` and its extensions in `kinds-by-extension` in `codecloud.presentation.windows-state`, a branch drawing it in `show-content!` in `codecloud.render.windows`, a branch in `load-file-window!` in `codecloud.vscode.session.window-messages` when it needs more than the file's address, and its extensions in the `when` clauses of the menus in `package.json` |
 | A measurement | A function of the graph node in `measurements` in `codecloud.model.metrics`, which `:weights` and `:color-layers` then accept |
 | An arrangement ranking by a measurement | A map in `arrangements` in `codecloud.presentation.arrangement` with its label, measurement, and unit |
 | A tool for agents | A namespace under `codecloud.agents.cloud-tools` defining `tool` as `{:spec :answer}`, with `:paths-to-read` naming the files its answer reads and `:touched` naming the places a call shows the agent at, added to `registry` there |
@@ -412,4 +486,4 @@ Settings and the cloud file cover the common cases without a build. A question s
 
 ## License
 
-MIT; see [LICENSE](LICENSE). The bundled fonts, Recursive and Nunito, are under the SIL Open Font License, and the tree-sitter runtime and its C and C++ grammars are under the MIT License, with notices in `media/fonts` and `grammars/LICENSE.txt`. wavescope-mcp and the libraries bundled with it, the MCP SDK, Ajv, and zod among them, are under the ISC, MIT, and BSD-3-Clause licenses, with notices in `dist/wavescope-LICENSES.txt`, which the build writes.
+MIT; see [LICENSE](LICENSE). The bundled fonts, Recursive and Nunito, are under the SIL Open Font License, and the tree-sitter runtime and its C and C++ grammars are under the MIT License, with notices in `media/fonts` and `grammars/LICENSE.txt`. wavescope-mcp and the libraries bundled with it, the MCP SDK, Ajv, and zod among them, are under the ISC, MIT, and BSD-3-Clause licenses, with notices in `dist/wavescope-LICENSES.txt`, which the build writes. pdf.js, which draws PDF windows, is under the Apache License 2.0, with its notice in `dist/pdfjs-LICENSE.txt`, which the build copies.

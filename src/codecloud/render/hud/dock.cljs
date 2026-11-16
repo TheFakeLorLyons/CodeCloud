@@ -10,32 +10,12 @@
   "The panes the dock holds, top to bottom."
   [:inspector :views :arrange :coworkers :assistant])
 
-(def ^:private default-weight
-  "A pane's share of the dock's height before the viewer sets one,
-  measured in pixels as the shares dragged into place are."
-  300)
-
 (defn minimize-button
   "The button minimizing side pane `pane` to its header, or expanding it."
   [dispatch pane]
   [:button.icon-button.pane-minimize {:type "button" :title "Minimize or expand" :aria-label "Minimize or expand"
                                       :on-click #(dispatch [:toggle-pane-minimized pane])}
    icons/chevron-up])
-
-(defn- follow-drag!
-  "Calls `move!` with how far the pointer pressed in `event` has moved,
-  across and down, then `done!` once it rises."
-  [^js event move! done!]
-  (let [start-x (.-clientX event)
-        start-y (.-clientY event)
-        on-move (fn [^js move-event] (move! (- (.-clientX move-event) start-x) (- (.-clientY move-event) start-y)))
-        stop! (fn stop! [_]
-                (.removeEventListener js/window "pointermove" on-move)
-                (.removeEventListener js/window "pointerup" stop!)
-                (done!))]
-    (.preventDefault event)
-    (.addEventListener js/window "pointermove" on-move)
-    (.addEventListener js/window "pointerup" stop!)))
 
 (defn- expanded-slots
   "The slots showing a pane at more than its header, top to bottom, as
@@ -57,7 +37,7 @@
         width-at (fn [dx] (max narrowest (min (- js/window.innerWidth 32) (- start-width dx))))
         last-width (atom start-width)]
     (reset! dragging? true)
-    (follow-drag! event
+    (dom/follow-drag! event
                   (fn [dx _dy]
                     (reset! last-width (width-at dx))
                     (.setProperty (.-style root) "--dock-width" (str @last-width "px")))
@@ -82,7 +62,7 @@
         (reset! dragging? true)
         (doseq [[shown-pane ^js slot] shown]
           (.setProperty (.-style slot) "--pane-weight" (str (get @heights shown-pane))))
-        (follow-drag! event
+        (dom/follow-drag! event
                       (fn [_dx dy]
                         (let [above (max lowest (min (- pair-height lowest) (+ start-above dy)))]
                           (swap! heights assoc above-pane above pane (- pair-height above))
@@ -119,7 +99,10 @@
   pane says, sized by the dock's width and the panes' shares, with a
   border to drag above each expanded pane after the first."
   [{:keys [^js root slots dragging?]} {:keys [dock]}]
-  (let [{:keys [width weights minimized]} dock]
+  (let [{:keys [width weights minimized]} dock
+        ;; A pane's share of the dock's height before the viewer sets one,
+        ;; in pixels as the shares dragged into place are.
+        default-weight 300]
     (when-not @dragging?
       (.setProperty (.-style root) "--dock-width" (str width "px")))
     (doseq [[pane ^js slot] slots

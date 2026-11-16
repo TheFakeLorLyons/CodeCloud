@@ -398,7 +398,7 @@
     (testing "pages go back one at a time or all together"
       (let [moved (:state (ui-state/handle-all loaded [[:move-page "app.db" [1 0 0]] [:move-page "app.core" [0 1 0]]]))]
         (is (= ["app.core"] (keys (:moved-pages (:state (ui-state/handle moved [:put-back "app.db"]))))))
-        (is (= {} (:moved-pages (:state (ui-state/handle moved [:put-everything-back])))))))
+        (is (= {} (:moved-pages (:state (ui-state/handle moved [:reset-page-positions])))))))
     (testing "remembered preferences arrive with init"
       (let [initialized (:state (ui-state/handle loaded [:host {:type :host/init :arrangement :complection
                                                                 :color-layers [:importance] :spread 1.6
@@ -567,10 +567,10 @@
     (testing "an id no environment goes by chooses the default"
       (is (= :simple (:sky-mode (:state (ui-state/handle loaded [:choose-sky-mode :sunrise]))))))
     (testing "the sky button cycles on through the described spaces"
-      (is (= [:clock :backrooms "Greenhouse" :simple]
+      (is (= [:clock :backrooms :night-library "Greenhouse" :simple]
              (map :sky-mode (rest (reductions (fn [state _] (:state (ui-state/handle state [:cycle-sky-mode])))
                                               loaded
-                                              (range 4)))))))))
+                                              (range 5)))))))))
 
 (deftest agents-come-from-the-host
   (is (= [{:type :view/connect-agent}] (sent-messages (:effects (ui-state/handle ui-state/initial-state [:connect-agent]))))
@@ -591,7 +591,26 @@
                                                                                   :reporting :full}]))
                                                  [:agents-reporting :brief])]
     (is (= :brief (get-in state [:agents :reporting])) "the pane shows the level chosen at once")
-    (is (= [{:type :view/agents-reporting :level :brief}] (sent-messages effects)) "and the host keeps it as a setting")))
+    (is (= [{:type :view/agents-reporting :level :brief}] (sent-messages effects)) "and the host keeps it as a setting"))
+  (let [told (:state (ui-state/handle ui-state/initial-state
+                                      [:host {:type :host/agents :serving? true :agents [] :reporting :full
+                                              :wavescope-bands :fine}]))
+        {:keys [state effects]} (ui-state/handle told [:agents-wavescope-bands :all])]
+    (is (= :fine (get-in told [:agents :wavescope-bands])) "the host says which of wavescope's bands agents get")
+    (is (= :all (get-in state [:agents :wavescope-bands])) "the pane shows the choice at once")
+    (is (= [{:type :view/agents-wavescope-bands :bands :all}] (sent-messages effects))
+        "and the host keeps it as a setting")))
+
+(deftest the-bars-along-the-edges-hide-when-asked
+  (let [{:keys [state effects]} (ui-state/handle ui-state/initial-state [:toggle-auto-hide-bars])]
+    (is (false? (:auto-hide-bars? ui-state/initial-state)))
+    (is (true? (:auto-hide-bars? state)))
+    (is (= [{:type :view/save-preference :key :auto-hide-bars? :value true}] (sent-messages effects))
+        "the choice is remembered for every cloud")
+    (is (false? (:auto-hide-bars? (:state (ui-state/handle state [:toggle-auto-hide-bars]))))))
+  (is (true? (:auto-hide-bars? (:state (ui-state/handle ui-state/initial-state
+                                                        [:host {:type :host/init :settings {} :auto-hide-bars? true}]))))
+      "the host's remembered choice holds when a cloud opens"))
 
 (defn- presence-message
   "A :host/presence message with Claude Code at `place` and its pins."
@@ -654,3 +673,28 @@
         (is (= ["Claude Code changed src/app/db.clj, which is open here."] (:notices noticed)))))
     (testing "a place no page holds goes nowhere"
       (is (empty? (:effects (ui-state/handle shown [:show-place {:path "notes.txt" :line 1}])))))))
+
+(deftest simple-shows-a-chosen-color
+  (let [{chosen :state effects :effects} (ui-state/handle (assoc ui-state/initial-state :sky-mode :night)
+                                                          [:choose-simple-color "#ABC"])]
+    (is (= [:simple "#aabbcc"] [(:sky-mode chosen) (:simple-color chosen)]))
+    (is (= [[:simple-color "#aabbcc"] [:sky-mode :simple]] (map (comp (juxt :key :value) second) effects)))
+    (is (= :day (:light (ui-state/shown-environment chosen))) "a light color gives pages their day look")
+    (is (nil? (:simple-color (:state (ui-state/handle chosen [:choose-simple-color nil])))))
+    (is (empty? (:effects (ui-state/handle ui-state/initial-state [:preview-simple-color "#223344"])))
+        "a color previewed while picking is not kept yet")
+    (is (= "#223344" (:simple-color (:state (run-events [[:host {:type :host/init :simple-color "#223344"}]])))))))
+
+(deftest the-arrange-pane-resets-to-default
+  (let [loaded (:state (run-events [[:host {:type :host/snapshot :snapshot (snapshot-with-id :working-tree)}]]))
+        arranged (:state (ui-state/handle-all loaded [[:set-arrangement :lines]
+                                                      [:set-spread 2.0]
+                                                      [:toggle-color-layer :folder]
+                                                      [:move-page "app.db" [1 2 3]]]))
+        {reset :state effects :effects} (ui-state/handle arranged [:reset-arrangement])
+        remembered (keep (fn [[effect-kind message]] (when (= :send effect-kind) [(:key message) (:value message)])) effects)]
+    (is (not (ui-state/arranged-by-default? arranged)))
+    (is (ui-state/arranged-by-default? reset))
+    (is (= [:folders 1.0 {}] [(:arrangement reset) (:spread reset) (:moved-pages reset)]))
+    (is (= #{[:arrangement :folders] [:color-layers nil] [:spread 1.0]} (set remembered)))
+    (is (= 1 (count (filter #{[:refit]} effects))) "the cloud refits once")))

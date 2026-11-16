@@ -684,6 +684,58 @@
 (defn csp-source [^js panel]
   (.. panel -webview -cspSource))
 
+(defn contributed-commands
+  "Every command the installed extensions contribute, as {:command :title
+  :category}, a title or category given as {:value} read as its value."
+  []
+  (let [text (fn [value] (if (string? value) value (some-> ^js value .-value)))]
+    (for [^js extension (array-seq (.. vscode -extensions -all))
+          :let [contributed (some-> extension .-packageJSON .-contributes .-commands)]
+          ^js entry (cond (array? contributed) (array-seq contributed)
+                          (some? contributed) [contributed]
+                          :else [])
+          :when (string? (.-command entry))]
+      {:command (.-command entry)
+       :title (text (.-title entry))
+       :category (text (.-category entry))})))
+
+(defn reveal-panel! [^js panel]
+  (.reveal panel nil false))
+
+(defn external-uri
+  "Resolves to the address that reaches `address` from where VS Code's
+  window runs, which for a remote workspace forwards a local port. Only
+  the origin goes through VS Code, since some hosts, code-server among
+  them, answer with the forwarded origin alone, and the path, query, and
+  fragment follow it."
+  [address]
+  (.then (js/Promise.resolve)
+         (fn [_]
+           (let [^js parsed (js/URL. address)
+                 rest-of-address (str (.-pathname parsed) (.-search parsed) (.-hash parsed))]
+             (.then (.asExternalUri (.-env vscode) (.parse (.-Uri vscode) (str (.-origin parsed) "/")))
+                    (fn [^js external]
+                      (str (string/replace (.toString external true) #"/+$" "") rest-of-address)))))))
+
+(defn open-external! [address]
+  (.openExternal (.-env vscode) (.parse (.-Uri vscode) address)))
+
+(defn open-with-default-editor! [file-path]
+  (execute-command "vscode.open" (file-uri file-path)))
+
+(defn pick-file
+  "Asks for one file under `starting-path` whose extension is among
+  `extensions`; resolves to its path or nil."
+  [starting-path filter-label extensions]
+  (.then (.showOpenDialog (.-window vscode)
+                          #js {:canSelectFiles true
+                               :canSelectFolders false
+                               :canSelectMany false
+                               :defaultUri (file-uri starting-path)
+                               :filters (clj->js {filter-label extensions})
+                               :openLabel "Show in the Cloud"})
+         (fn [^js chosen] (when (and chosen (pos? (.-length chosen))) (uri-path (aget chosen 0))))))
+
 (defn post-message! [^js panel text]
   (.postMessage (.-webview panel) text))
 

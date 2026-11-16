@@ -85,11 +85,13 @@
    ["Ctrl+Alt+C Shift+Enter" "Load/evaluate current file and its requires/dependencies"]
    ["Double-click" "Fly there"]
    ["Ctrl or Alt drag" "Move a page"]
+   ["Click a window" "Use it until the pointer leaves"]
    ["/" "Find"]
    ["N" "Code or names"]
    ["A" "Arrange"]
    ["R" "REPL"]
    ["Q" "Assistant"]
+   ["G" "Grid"]
    ["[ ]" "Spacing"]
    ["?" "Legend"]])
 

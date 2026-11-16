@@ -8,6 +8,7 @@
             [codecloud.io.analyzer :as analyzer]
             [codecloud.io.task :as task]
             [codecloud.model.config :as config]
+            [codecloud.model.ignored :as ignored]
             [codecloud.model.source :as source]
             [codecloud.model.workspace :as workspace]
             [codecloud.protocol :as protocol]
@@ -19,10 +20,12 @@
             [codecloud.vscode.editor-zoom :as editor-zoom]
             [codecloud.vscode.repl-host :as repl-host]
             [codecloud.vscode.session.agent-messages :as agent-messages]
+            [codecloud.vscode.session.command-messages]
             [codecloud.vscode.session.common :as common]
             [codecloud.vscode.session.editing-messages :as editing-messages]
             [codecloud.vscode.session.repl-messages :as repl-messages]
             [codecloud.vscode.session.snapshots :as snapshots]
+            [codecloud.vscode.session.window-messages :as window-messages]
             [codecloud.vscode.settings :as settings]
             [codecloud.vscode.shells :as shells]
             [codecloud.vscode.webview :as webview]))
@@ -33,11 +36,12 @@
 (def ^:private cloud-preferences
   "Preferences remembered for each cloud file, since each codebase may be
   best seen its own way."
-  [:view-filter :arrangement :header-mode :color-layers :color-overrides :spread])
+  [:view-filter :arrangement :header-mode :color-layers :color-overrides :spread :windows :grid :shown-ignored])
 
 (def ^:private viewer-preferences
   "Preferences remembered for every cloud, as how the viewer likes to work."
-  [:display-mode :totals-open? :tint-clouds? :inspector-minimized? :repl-geometry :dock])
+  [:display-mode :totals-open? :title-summary-hidden? :auto-hide-bars? :tint-clouds? :inspector-minimized? :repl-geometry
+   :dock])
 
 (defn- viewer-preference-key [preference]
   (str "codecloud." (name preference)))
@@ -47,15 +51,20 @@
     (protocol/message :host/init
                       (into {:settings {:zoom-out-threshold (settings/zoom-out-threshold)
                                         :editor-colors? (settings/editor-colors?)
+                                        :toolbar-colors (settings/toolbar-colors)
+                                        :page-commands (settings/page-commands)
                                         ;; Brackets come in pairs in the cloud as in
                                         ;; VS Code's Clojure editors, Calva's settings included.
                                         :pairs-brackets? (not= "never" (api/editor-setting "clojure" "autoClosingBrackets"
                                                                                            "languageDefined"))}
                              :theme-kind (api/theme-kind)
                              :sky-mode (settings/sky-mode described-spaces)
+                             :simple-color (settings/simple-color)
                              :spaces described-spaces
                              :display-mode (or (api/remembered (:global-state host) (viewer-preference-key :display-mode)) :code)
                              :totals-open? (api/remembered (:global-state host) (viewer-preference-key :totals-open?))
+                             :title-summary-hidden? (api/remembered (:global-state host) (viewer-preference-key :title-summary-hidden?))
+                             :auto-hide-bars? (api/remembered (:global-state host) (viewer-preference-key :auto-hide-bars?))
                              :tint-clouds? (api/remembered (:global-state host) (viewer-preference-key :tint-clouds?))
                              :inspector-minimized? (api/remembered (:global-state host) (viewer-preference-key :inspector-minimized?))
                              :repl-geometry (api/remembered (:global-state host) (viewer-preference-key :repl-geometry))
@@ -148,8 +157,13 @@
 (defmethod common/handle-message :view/save-preference [{:keys [host cloud-file] :as session} {preference :key :keys [value]}]
   (cond
     (= :sky-mode preference) (settings/save-sky-mode! value)
+    (= :simple-color preference) (settings/save-simple-color! value)
     (= :editor-colors? preference) (settings/save-editor-colors! value)
+    (= :toolbar-colors preference) (settings/save-toolbar-colors! value)
     (some #{preference} viewer-preferences) (api/remember! (:global-state host) (viewer-preference-key preference) value)
+    (= :shown-ignored preference) (let [shown (ignored/chosen-paths value)]
+                                    (api/remember! (:workspace-state host) (preference-key cloud-file preference) shown)
+                                    (snapshots/show-ignored! session shown))
     (some #{preference} cloud-preferences) (api/remember! (:workspace-state host) (preference-key cloud-file preference) value)
     :else (common/log! session (str "Ignored the preference " preference))))
 
@@ -225,6 +239,7 @@
   (doseq [tab (keys @(:calva-tabs session))]
     (repl-messages/with-calva-tab session tab calva/close!))
   (shells/release-all! (repl-messages/shell-context session))
+  (window-messages/stop! session)
   (assistant-host/close! (agent-messages/assistant-context session))
   (unregister! session))
 
@@ -243,7 +258,9 @@
                  :cloud-file cloud-file
                  :root-directory root-directory
                  :analyzer (analyzer-for host cloud-file root-directory)
-                 :state (atom {:ready? false :timers {} :visible? true})
+                 :state (atom {:ready? false :timers {} :visible? true
+                               :shown-ignored (ignored/chosen-paths
+                                               (api/remembered (:workspace-state host) (preference-key cloud-file :shown-ignored)))})
                  :repls (atom {})
                  :calva-tabs (atom {})
                  :shells (shells/create)
@@ -251,7 +268,7 @@
                  :disposables (atom [])}
         add! (fn [item] (swap! (:disposables session) conj item))
         settle-milliseconds 300]
-    (webview/prepare! panel (:extension-uri host))
+    (webview/prepare! panel (:extension-uri host) (distinct [root-directory (window-messages/content-folder session)]))
     (add! (api/on-panel-message! panel (fn [text]
                                          (when-let [message (protocol/decode text)]
                                            (common/handle-message session message)))))
@@ -260,6 +277,7 @@
     (add! (agent-messages/follow-presence! session))
     (add! (agent-messages/follow-assistant! session))
     (add! (follow-problems! session))
+    (add! (window-messages/follow-documents! session))
     (doseq [item (shells/watch! (repl-messages/shell-context session))]
       (add! item))
     (add! (api/on-panel-view-state! panel (fn [changed-panel]

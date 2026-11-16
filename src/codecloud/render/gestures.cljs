@@ -10,21 +10,23 @@
             [codecloud.render.camera :as camera]
             [codecloud.render.editing-view :as editing-view]
             [codecloud.render.flights :as flights]
+            [codecloud.render.grid :as grid]
             [codecloud.render.navigation :as navigation]
             [codecloud.render.pages :as pages]
             [codecloud.render.placement :as placement]
-            [codecloud.render.typing :as typing]))
+            [codecloud.render.typing :as typing]
+            [codecloud.render.windows :as windows]))
 
 (defn- dispatch! [app event]
   ((:dispatch! app) event))
 
 ;; Picking
 
-(defn page-hit
-  "The nearest page under the pointer, with the code line there."
-  [app ^js raycaster]
-  (let [pairs (pages/body-meshes (:page-layer app))
-        page-of-mesh (js/Map.)]
+(defn- body-hit
+  "The nearest of the page bodies in `pairs` that the ray meets, with the
+  code line there."
+  [app ^js raycaster pairs]
+  (let [page-of-mesh (js/Map.)]
     (doseq [[mesh page-object] pairs] (.set page-of-mesh mesh page-object))
     (when-let [^js hit (first (array-seq (.intersectObjects raycaster (into-array (map first pairs)) false)))]
       (let [page-object (.get page-of-mesh (.-object hit))
@@ -39,6 +41,22 @@
                  :distance (.-distance hit)
                  :node (get-in @(:state app) [:visible-snapshot :namespaces (:id page-object)])}
           line (assoc :origin (:origin line) :panel-line (:panel-line line)))))))
+
+(defn page-hit
+  "The nearest page in the cloud under the pointer, with the code line
+  there. Pages in the grid's cells stand on layers of their own, which
+  the ray leaves out."
+  [app ^js raycaster]
+  (body-hit app raycaster (pages/body-meshes (:page-layer app))))
+
+(defn- cell-hit
+  "The page in grid cell `placed` under the pointer, with the code line
+  there, met on the cell's own layer."
+  [app ^js raycaster {:keys [cell layer]}]
+  (when (= :page (:kind cell))
+    (.set (.-layers raycaster) layer)
+    (body-hit app raycaster (filter (fn [[_mesh page-object]] (= (:id cell) (:id page-object)))
+                                    (pages/body-meshes (:page-layer app))))))
 
 (defn- folder-hit
   "The innermost folder cloud whose circle on screen holds the pointer."
@@ -58,12 +76,26 @@
                     first)]
       {:kind :folder :path path :point center})))
 
+(defn- screen-of [app ndc-x ndc-y]
+  (let [{:keys [width height]} (camera/viewport app)]
+    [(* 0.5 (+ 1 ndc-x) width) (* 0.5 (- 1 ndc-y) height)]))
+
 (defn pick
-  "What lies under a pointer position, a line of code, a page, or a folder
-  cloud, pages first."
+  "What lies under a pointer position: in the grid, the code of the page
+  in the cell there; in the cloud, a line of code, a page, a window, or
+  a folder cloud, the nearest of pages and windows first."
   [app ndc-x ndc-y]
-  (or (page-hit app (camera/pointer-ray app ndc-x ndc-y))
-      (folder-hit app)))
+  (let [[x y] (screen-of app ndc-x ndc-y)
+        raycaster (camera/pointer-ray app ndc-x ndc-y)]
+    (if-let [placed (grid/cell-at app x y)]
+      (cell-hit app raycaster placed)
+      (when-not (grid/covers? app x y)
+        (let [page (page-hit app raycaster)
+              window (windows/hit (:windows app) raycaster)]
+          (cond
+            (and window (or (nil? page) (< (:distance window) (:distance page)))) window
+            page page
+            :else (folder-hit app)))))))
 
 ;; Zooming and diving into the editor
 
@@ -106,11 +138,10 @@
                            (assoc-in [:pointer :moved?] true)))
   (release-follow! app))
 
-(defn- on-wheel
+(defn- zoom-or-dive!
   "Zooms toward the pointer. Over code, zooming stops where the code
   reaches the editor's size, and further scrolling dives into the file."
   [app ^js event]
-  (.preventDefault event)
   (let [{:keys [ndc-x ndc-y]} (:pointer @(:frame app))
         pixels (wheel-pixels event)
         zoom-in? (neg? pixels)
@@ -130,6 +161,18 @@
       at-floor? (push-dive! app hit pixels)
       hit (navigation/zoom-about! controller (:point hit) floor-factor)
       :else (navigation/zoom-about! controller (navigation/focus-point-under controller ndc-x ndc-y) factor))))
+
+(defn- on-wheel
+  "Scrolls a page in the grid, does nothing elsewhere over the grid, and
+  zooms or dives over the cloud."
+  [app ^js event]
+  (.preventDefault event)
+  (let [{:keys [x y]} (:pointer @(:frame app))
+        placed (grid/cell-at app x y)]
+    (cond
+      (= :page (get-in placed [:cell :kind])) (grid/scroll-page! app (get-in placed [:cell :id]) (wheel-pixels event))
+      (grid/covers? app x y) nil
+      :else (zoom-or-dive! app event))))
 
 ;; Pointing into code
 
@@ -338,38 +381,56 @@
 
 (defn- on-pointer-down
   "Starts a selection on the page being edited, a carry with Ctrl or Alt,
-  or a drag that orbits or pans."
+  or a drag that orbits or pans, or over a page in the grid, scrolls it.
+  A press on the grid's gaps does nothing."
   [app ^js event]
   (update-pointer! app event)
-  (.setPointerCapture ^js (.-target event) (.-pointerId event))
-  (let [{:keys [ndc-x ndc-y]} (:pointer @(:frame app))
+  (let [{:keys [x y ndc-x ndc-y]} (:pointer @(:frame app))
+        placed (grid/cell-at app x y)
         left? (zero? (.-button event))
         presses (when left? (count-press! app event))
-        hit (when left? (page-hit app (camera/pointer-ray app ndc-x ndc-y)))]
+        hit (when left?
+              (if placed
+                (cell-hit app (camera/pointer-ray app ndc-x ndc-y) placed)
+                (page-hit app (camera/pointer-ray app ndc-x ndc-y))))]
     (swap! (:frame app) dissoc :arrival)
-    (cond
-      (and hit (not (carry-modifier? event)) (on-edited-page? app hit))
-      (start-selecting! app hit event presses)
+    (when-not (and (nil? placed) (grid/covers? app x y))
+      (.setPointerCapture ^js (.-target event) (.-pointerId event))
+      (cond
+        (and hit (not (carry-modifier? event)) (on-edited-page? app hit))
+        (start-selecting! app hit event presses)
 
-      (and hit (carry-modifier? event) (start-carry! app hit event))
-      nil
+        (and hit (nil? placed) (carry-modifier? event) (start-carry! app hit event))
+        nil
 
-      :else
-      (swap! (:frame app) assoc :drag {:button (.-button event)
-                                       :shift? (.-shiftKey event)
-                                       :start [(.-clientX event) (.-clientY event)]
-                                       :last [(.-clientX event) (.-clientY event)]
-                                       :last-move (js/performance.now)
-                                       :moved? false
-                                       :jump (when (and hit (jump-modifier? event) (readable-code? hit)) hit)}))))
+        :else
+        (swap! (:frame app) assoc :drag {:button (.-button event)
+                                         :shift? (.-shiftKey event)
+                                         :start [(.-clientX event) (.-clientY event)]
+                                         :last [(.-clientX event) (.-clientY event)]
+                                         :last-move (js/performance.now)
+                                         :moved? false
+                                         :scrolls (get-in placed [:cell :id])
+                                         :jump (when (and hit (jump-modifier? event) (readable-code? hit)) hit)})))))
+
+(defn- pass-to-window-cell!
+  "Lets the window in the grid cell under the pointer take it, as an editor
+  group takes the pointer in VS Code."
+  [app]
+  (let [{:keys [x y]} (:pointer @(:frame app))
+        {:keys [cell body]} (grid/cell-at app x y)]
+    (when (and (= :window (:kind cell))
+               (<= (:top body) y))
+      (windows/activate! (:windows app) (:id cell)))))
 
 (defn- on-pointer-move [app ^js event]
   (update-pointer! app event)
   (cond
     (:selecting @(:frame app)) (extend-selection! app)
     (:carried @(:frame app)) (carry-to-pointer! app event)
+    (nil? (:drag @(:frame app))) (pass-to-window-cell! app)
     :else
-    (when-let [{:keys [button shift? start] previous :last :as drag} (:drag @(:frame app))]
+    (when-let [{:keys [button shift? start scrolls] previous :last :as drag} (:drag @(:frame app))]
       (let [[start-x start-y] start
             [last-x last-y] previous
             delta-x (- (.-clientX event) last-x)
@@ -379,9 +440,10 @@
                        (> (js/Math.hypot (- (.-clientX event) start-x) (- (.-clientY event) start-y)) drag-threshold))]
         (when moved?
           (release-follow! app)
-          (if (or (= 2 button) (= 1 button) shift?)
-            (navigation/pan! (:controller app) delta-x delta-y (camera/viewport-height app))
-            (navigation/orbit! (:controller app) delta-x delta-y (camera/viewport-height app))))
+          (cond
+            scrolls (grid/scroll-page! app scrolls (- delta-y))
+            (or (= 2 button) (= 1 button) shift?) (navigation/pan! (:controller app) delta-x delta-y (camera/viewport-height app))
+            :else (navigation/orbit! (:controller app) delta-x delta-y (camera/viewport-height app))))
         (swap! (:frame app) assoc
                :last-interaction (if moved? (js/performance.now) (:last-interaction @(:frame app)))
                :user-moved? (or (:user-moved? @(:frame app)) moved?)
@@ -393,6 +455,7 @@
   (case (:kind hit)
     (:code :namespace) {:kind :page :id (:id hit) :x x :y y}
     :folder {:kind :folder :path (:path hit) :x x :y y}
+    :window {:kind :window :id (:id hit) :x x :y y}
     {:kind :sky :x x :y y}))
 
 (defn- click-event [hit]
@@ -430,7 +493,10 @@
                   (js/setTimeout (fn []
                                    (when (= click-id (:pending-click @(:frame app)))
                                      (swap! (:frame app) dissoc :pending-click)
-                                     (dispatch! app (click-event hit))))
+                                     ;; A click on a window lets it take the pointer.
+                                     (if (= :window (:kind hit))
+                                       (windows/activate! (:windows app) (:id hit))
+                                       (dispatch! app (click-event hit)))))
                                  double-click-window)))
             2 (dispatch! app [:open-menu (menu-for hit pointer)])
             nil))))))
@@ -443,10 +509,13 @@
   (swap! (:frame app) dissoc :pending-click)
   (let [{:keys [ndc-x ndc-y]} (:pointer @(:frame app))
         hit (pick app ndc-x ndc-y)]
-    (when-not (and (contains? #{:code :namespace} (:kind hit)) (on-edited-page? app hit))
+    (when-not (or (and (contains? #{:code :namespace} (:kind hit)) (on-edited-page? app hit))
+                  (let [{:keys [x y]} (:pointer @(:frame app))] (grid/covers? app x y)))
       (case (:kind hit)
         (:code :namespace) (dispatch! app [:double-click-namespace (:id hit)])
         :folder (dispatch! app [:frame-directory (:path hit)])
+        :window (do (dispatch! app [:fly-to-window (:id hit)])
+                    (windows/activate! (:windows app) (:id hit)))
         (dispatch! app [:frame-all])))))
 
 ;; Keyboard
@@ -465,7 +534,8 @@
           zoom-out-factor 1.25
           handled (case (.-key event)
                     "/" (dispatch! app [:open-search])
-                    "Escape" (dispatch! app [:escape])
+                    "Escape" (do (windows/deactivate! (:windows app))
+                                 (dispatch! app [:escape]))
                     "Home" (dispatch! app [:frame-all])
                     "ArrowLeft" (dispatch! app [:step-history -1])
                     "ArrowRight" (dispatch! app [:step-history 1])
@@ -474,6 +544,9 @@
                     ("a" "A") (dispatch! app [:toggle-arrange-panel])
                     ("r" "R") (dispatch! app [:toggle-repl])
                     ("q" "Q") (dispatch! app [:toggle-assistant])
+                    ("g" "G") (dispatch! app [:toggle-grid])
+                    ("t" "T") (dispatch! app [:toggle-auto-hide-bars])
+                    ("c" "C") (dispatch! app [:pick-command-for-page-in-hand])
                     "?" (dispatch! app [:toggle-legend])
                     "[" (dispatch! app [:step-spread -1])
                     "]" (dispatch! app [:step-spread 1])
@@ -482,6 +555,26 @@
                     ::unhandled)]
       (when-not (= ::unhandled handled)
         (.preventDefault event)))))
+
+(defn- page-command-keys?
+  "True for Ctrl+Alt+R, or Cmd+Option+R on macOS, which offer the commands
+  to run for the page in hand."
+  [^js event]
+  (and (= "KeyR" (.-code event)) (.-altKey event) (not (.-shiftKey event)) (not (.-repeat event))
+       (if (typing/mac?)
+         (and (.-metaKey event) (not (.-ctrlKey event)))
+         (and (.-ctrlKey event) (not (.-metaKey event))))))
+
+(defn- on-page-command-keys
+  "Takes the page command keys before anything else in the cloud sees
+  them, VS Code included, so neither a pane holding the keyboard nor a
+  keybinding another extension starts with the same keys keeps them from
+  the cloud."
+  [app ^js event]
+  (when (page-command-keys? event)
+    (.preventDefault event)
+    (.stopPropagation event)
+    (dispatch! app [:pick-command-for-page-in-hand])))
 
 (defn attach!
   "Listens for input on the cloud's canvas and the window."
@@ -503,4 +596,5 @@
     (.addEventListener canvas "pointerenter" #(update-pointer! app %))
     (.addEventListener canvas "dblclick" #(on-double-click app %))
     (.addEventListener canvas "contextmenu" #(.preventDefault ^js %))
+    (.addEventListener js/window "keydown" #(on-page-command-keys app %) true)
     (.addEventListener js/window "keydown" #(on-key-down app %))))

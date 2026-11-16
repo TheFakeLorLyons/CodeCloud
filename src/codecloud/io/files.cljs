@@ -1,6 +1,6 @@
 (ns codecloud.io.files
   "File access for the analyzer, which reads text, hashes it as git does,
-  and walks folders outside git."
+  walks folders outside git, and lists what ignored folders hold."
   (:require ["crypto" :as crypto]
             ["fs" :as fs]
             ["path" :as path]
@@ -55,30 +55,33 @@
       (task/then (fn [entries] (vec entries)))
       (task/recover (fn [_error] []))))
 
-(defn- kept-entries
-  "{:subdirectories :files} of a directory's entries as relative paths
-  the ignore rules keep, with only the files `wanted-file?` accepts."
-  [entries relative-directory rule-sets wanted-file?]
-  (let [relative-child (fn [^js entry]
-                         (if (= "" relative-directory)
-                           (.-name entry)
-                           (str relative-directory "/" (.-name entry))))]
-    {:subdirectories (into []
-                           (comp (filter #(.isDirectory ^js %))
-                                 (map relative-child)
-                                 (remove #(ignore/directory-ignored? rule-sets %)))
-                           entries)
-     :files (into []
-                  (comp (filter #(.isFile ^js %))
-                        (map relative-child)
-                        (filter wanted-file?)
-                        (remove #(ignore/ignored? rule-sets %)))
-                  entries)}))
+(defn- relative-child [relative-directory ^js entry]
+  (if (= "" relative-directory)
+    (.-name entry)
+    (str relative-directory "/" (.-name entry))))
 
-(defn walk-files
-  "Relative paths under `root-directory` passing `wanted-file?`, honoring
-  each .gitignore and `base-rule-sets`. For roots outside git."
-  [root-directory base-rule-sets wanted-file?]
+(defn- sorted-entries
+  "{:subdirectories :files :ignored-subdirectories :ignored-files} of a
+  directory's entries as relative paths, by whether the ignore rules keep
+  them."
+  [entries relative-directory rule-sets]
+  (let [{subdirectories true ignored-subdirectories false}
+        (group-by #(not (ignore/directory-ignored? rule-sets %))
+                  (into [] (comp (filter #(.isDirectory ^js %)) (map #(relative-child relative-directory %))) entries))
+        {files true ignored-files false}
+        (group-by #(not (ignore/ignored? rule-sets %))
+                  (into [] (comp (filter #(.isFile ^js %)) (map #(relative-child relative-directory %))) entries))]
+    {:subdirectories (vec subdirectories)
+     :files (vec files)
+     :ignored-subdirectories (vec ignored-subdirectories)
+     :ignored-files (vec ignored-files)}))
+
+(defn walk-tree
+  "Resolves to {:files :ignored-folders :ignored-files}, the relative paths
+  under `root-directory` that each .gitignore and `base-rule-sets` keep,
+  and the outermost folders, ending in a slash, and the files they
+  ignore. For roots outside git."
+  [root-directory base-rule-sets]
   (letfn [(walk-directory [relative-directory inherited-rule-sets]
             (let [directory (if (= "" relative-directory)
                               root-directory
@@ -89,7 +92,53 @@
                    (fn [[gitignore-text entries]]
                      (let [rule-sets (cond-> inherited-rule-sets
                                        gitignore-text (conj (ignore/rule-set-from-text relative-directory gitignore-text)))
-                           {:keys [subdirectories files]} (kept-entries entries relative-directory rule-sets wanted-file?)]
+                           {:keys [subdirectories files ignored-subdirectories ignored-files]}
+                           (sorted-entries entries relative-directory rule-sets)]
                        (task/then (task/map-limited parallel-walks #(walk-directory % rule-sets) subdirectories)
-                                  (fn [nested] (into files cat nested)))))))))]
+                                  (fn [nested]
+                                    {:files (into files (mapcat :files) nested)
+                                     :ignored-folders (into (mapv #(str % "/") ignored-subdirectories)
+                                                            (mapcat :ignored-folders) nested)
+                                     :ignored-files (into ignored-files (mapcat :ignored-files) nested)}))))))))]
     (walk-directory "" (vec base-rule-sets))))
+
+(defn walk-files
+  "Relative paths under `root-directory` passing `wanted-file?`, honoring
+  each .gitignore and `base-rule-sets`. For roots outside git."
+  [root-directory base-rule-sets wanted-file?]
+  (task/then (walk-tree root-directory base-rule-sets)
+             (fn [{:keys [files]}] (filterv wanted-file? files))))
+
+(defn files-under
+  "Resolves to the relative paths of every file inside the folder at
+  `relative-folder`, however deep and whatever ignores it, leaving out
+  .git folders."
+  [root-directory relative-folder]
+  (letfn [(walk-directory [relative-directory]
+            (let [parallel-walks 8]
+              (task/then (directory-entries (absolute-path root-directory relative-directory))
+                         (fn [entries]
+                           (let [folders (into []
+                                               (comp (filter #(.isDirectory ^js %))
+                                                     (remove #(= ".git" (.-name ^js %)))
+                                                     (map #(relative-child relative-directory %)))
+                                               entries)
+                                 found (into []
+                                             (comp (filter #(.isFile ^js %)) (map #(relative-child relative-directory %)))
+                                             entries)]
+                             (task/then (task/map-limited parallel-walks walk-directory folders)
+                                        (fn [nested] (into found cat nested))))))))]
+    (walk-directory relative-folder)))
+
+(defn folder-children
+  "Resolves to what the folder at `relative-folder` directly holds, as
+  [{:name :folder?}], \"\" standing for `root-directory` itself."
+  [root-directory relative-folder]
+  (task/then (directory-entries (if (= "" relative-folder) root-directory (absolute-path root-directory relative-folder)))
+             (fn [entries]
+               (into []
+                     (keep (fn [^js entry]
+                             (cond
+                               (.isDirectory entry) {:name (.-name entry) :folder? true}
+                               (.isFile entry) {:name (.-name entry) :folder? false})))
+                     entries))))

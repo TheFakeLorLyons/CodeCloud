@@ -35,6 +35,16 @@
                       ["-c" "core.quotePath=false" "ls-files" "-z" "--cached" "--others" "--exclude-standard"])
              (fn [output] (vec (distinct (split-null-separated output))))))
 
+(defn ignored-files
+  "Untracked files that .gitignore, .git/info/exclude, and the global
+  excludes file ignore, a folder ignored whole given once, ending in a
+  slash."
+  [git-executable directory]
+  (task/then (run-git git-executable directory
+                      ["-c" "core.quotePath=false" "ls-files" "-z" "--others" "--ignored" "--exclude-standard"
+                       "--directory" "--no-empty-directory"])
+             (fn [output] (vec (distinct (split-null-separated output))))))
+
 (def ^:private field-separator "\u001f")
 (def ^:private record-separator "\u001e")
 

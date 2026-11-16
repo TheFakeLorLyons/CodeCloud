@@ -405,17 +405,23 @@
 
 (defn page-colors
   "Map of page id to its blended {:day :night} color, nil for a page no
-  enabled layer colors."
+  enabled layer colors and for a page shown though ignored, which stays
+  gray."
   [layers contexts enabled snapshot]
-  (into {} (map (fn [[id node]] [id (page-color layers contexts enabled node)])) (:namespaces snapshot)))
+  (into {}
+        (map (fn [[id node]] [id (when-not (:ignored? node) (page-color layers contexts enabled node))]))
+        (:namespaces snapshot)))
 
 (defn folder-hues
   "Map of page id to the hue of its folder's color by day, which the
-  folder's cloud takes."
+  folder's cloud takes, leaving out pages shown though ignored, whose
+  clouds stay plain."
   [contexts snapshot]
   (let [colors (get-in contexts [:folder :colors])]
     (into {}
-          (keep (fn [[id node]] (when-let [day (:day (get colors (folder-path node)))] [id (nth day 2)])))
+          (keep (fn [[id node]]
+                  (when-not (:ignored? node)
+                    (when-let [day (:day (get colors (folder-path node)))] [id (nth day 2)]))))
           (:namespaces snapshot))))
 
 (defn cloud-tint

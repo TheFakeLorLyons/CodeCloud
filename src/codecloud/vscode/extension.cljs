@@ -7,6 +7,8 @@
             [codecloud.io.task :as task]
             [codecloud.model.selection :as selection]
             [codecloud.presentation.visibility :as visibility]
+            [codecloud.presentation.windows-state :as windows-state]
+            [codecloud.protocol :as protocol]
             [codecloud.vscode.agent-edits :as agent-edits]
             [codecloud.vscode.agents :as agents]
             [codecloud.vscode.api :as api]
@@ -16,8 +18,11 @@
             [codecloud.vscode.editor-evaluation :as editor-evaluation]
             [codecloud.vscode.editor-zoom :as editor-zoom]
             [codecloud.vscode.session :as session]
+            [codecloud.vscode.session.command-messages :as command-messages]
+            [codecloud.vscode.session.common :as common]
             [codecloud.vscode.session.editing-messages :as editing-messages]
-            [codecloud.vscode.session.repl-messages :as repl-messages]))
+            [codecloud.vscode.session.repl-messages :as repl-messages]
+            [codecloud.vscode.session.window-messages :as window-messages]))
 
 (defonce ^:private running-host (atom nil))
 
@@ -155,6 +160,47 @@
            (session-showing host)
            repl-messages/interrupt-evaluations!))
 
+(defn- open-file-in-cloud!
+  "Shows a file in a window of the open cloud holding it, offering to open
+  that cloud when it is closed. Returns nil without waiting on the
+  notice it shows, since a notice stays open until dismissed and a page
+  command running this one waits for it to finish."
+  [host file-path]
+  (let [cloud-file (when file-path (clouds/cloud-file-for (:index host) file-path))
+        open-session (or (when cloud-file (session-showing host cloud-file)) @(:active-session host))
+        window (when (and open-session file-path) (window-messages/file-window open-session file-path))]
+    (cond
+      (nil? file-path) (api/info-message "Choose a page, document, or image to show in the cloud.")
+      (nil? (windows-state/file-kind file-path)) (api/info-message "CodeCloud's windows show web pages, Markdown, PDFs, and images.")
+      window (window-messages/open-window! open-session window)
+      cloud-file (task/then (api/info-message "Open this file's cloud to show the file in it." "Open Cloud")
+                            (fn [choice] (when choice (clouds/open-cloud! host cloud-file nil nil))))
+      :else (api/info-message "This file lies in no open cloud's workspace folder."))
+    nil))
+
+(defn- show-web-page!
+  "Asks for a web address and shows it in a window of the cloud in front."
+  [host]
+  (if-let [open-session (or @(:active-session host) (first (all-sessions host)))]
+    (task/then (api/input-box {:title "Show a Web Page in the Cloud"
+                               :prompt "A port on this computer, such as 1971, or a web address"
+                               :placeholder "1971"
+                               :validate (fn [text] (when-not (windows-state/web-address text) "Enter a port or a web address"))})
+               (fn [text]
+                 (when-let [address (windows-state/web-address text)]
+                   (window-messages/open-window! open-session {:kind :web :source address}))))
+    (api/info-message "Open a cloud first, then show a web page in it.")))
+
+(defn- run-command-for-page!
+  "Offers the commands extensions contribute and runs the one picked for
+  the page in hand in the cloud in front, or for the file in the editor
+  when no cloud is in front."
+  [host]
+  (let [open-session @(:active-session host)]
+    (if (and open-session (api/panel-active? (:panel open-session)))
+      (common/post! open-session (protocol/message :host/pick-page-command {}))
+      (command-messages/pick-for-editor!))))
+
 (defn- commands [host]
   {"codecloud.enter" (fn [& _] (editor-zoom/enter-cloud! host 1))
    "codecloud.evaluateForm" (fn [& _] (evaluate-in-editor! host :form))
@@ -173,6 +219,9 @@
    "codecloud.editCloudFile" (fn [& [uri]] (edit-cloud-file! host uri))
    "codecloud.refresh" (fn [& _] (refresh! host))
    "codecloud.connectAgent" (fn [& _] (agents/connect-agent! host))
+   "codecloud.openInCloud" (fn [& [uri]] (open-file-in-cloud! host (or (some-> uri api/uri-path) (:path (api/active-editor-view)))))
+   "codecloud.showWebPage" (fn [& _] (show-web-page! host))
+   "codecloud.runCommandForPage" (fn [& _] (run-command-for-page! host))
    "codecloud.chooseAssistantModel" (fn [& _] (assistant-host/choose-model! host))
    "codecloud.showOnlyInCloud" (fn [& [clicked selected]]
                                  (filter-from-explorer! host clicked selected (fn [_current patterns] (visibility/show-only patterns))))

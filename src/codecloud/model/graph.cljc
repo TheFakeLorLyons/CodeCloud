@@ -47,7 +47,7 @@
              :else :module)
      :doc (some :doc ordered-facts)
      :files (mapv #(select-keys % [:path :language :dialect :line-count :longest-line :content-key :parse-error
-                                   :file-role :companion])
+                                   :file-role :companion :ignored?])
                   ordered-facts)
      :line-count (reduce + (map :line-count ordered-facts))
      :method-count (reduce + (map #(:method-count % 0) ordered-facts))

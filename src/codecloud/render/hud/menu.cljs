@@ -6,8 +6,10 @@
             [codecloud.presentation.page :as page]
             [codecloud.presentation.scene :as scene]
             [codecloud.presentation.visibility :as visibility]
+            [codecloud.presentation.windows-state :as windows-state]
             [codecloud.render.dom :as dom]
-            [codecloud.render.hud.words :as words]))
+            [codecloud.render.hud.words :as words]
+            [codecloud.render.typing :as typing]))
 
 (defn- working-tree? [{:keys [snapshot]}]
   (= :working-tree (:id snapshot)))
@@ -17,10 +19,17 @@
         directory (page/directory node)]
     {:heading (scene/label-parts node)
      :items (cond-> [[(if (= namespace-id focused-id) "Set it back" "Bring it closer") [:click-namespace namespace-id]]
-                     ["Fly to it" [:double-click-namespace namespace-id]]]
-              (contains? moved-pages namespace-id) (conj ["Put it back" [:put-back namespace-id]])
+                     ["Fly to it" [:double-click-namespace namespace-id]]
+                     (if (windows-state/pinned? state {:kind :page :id namespace-id})
+                       ["Unpin from the grid" [:unpin {:kind :page :id namespace-id}]]
+                       ["Pin to the grid" [:pin {:kind :page :id namespace-id}]])]
+              (contains? moved-pages namespace-id) (conj ["Reset its position" [:put-back namespace-id]])
               true (into [["Open in the editor" [:dive {:path (:path (page/primary-file node)) :line 1}]]])
-              (working-tree? state) (conj ["New file beside it" [:new-file directory]])
+              (working-tree? state) (into (concat (map-indexed (fn [index {:keys [title]}]
+                                                                 [title [:run-page-command index namespace-id]])
+                                                               (get-in state [:settings :page-commands]))
+                                                  [["Run a command…" [:pick-page-command namespace-id] (typing/shortcut "Ctrl+Alt+R")]
+                                                   ["New file beside it" [:new-file directory]]]))
               true (into [["Show only it and its neighbors" [:show-only (visibility/neighborhood-patterns snapshot namespace-id)]]
                           ["Hide it" [:hide-page namespace-id]]
                           ["Hide its folder" [:hide-folder directory]]]))}))
@@ -33,13 +42,26 @@
             true (into [["Show only this folder" [:show-only [(selection/directory-pattern path)]]]
                         ["Hide this folder" [:hide-folder path]]]))})
 
-(defn- sky-items [{:keys [view-filter moved-pages] :as state}]
+(defn- window-items [state window-id]
+  (let [{:keys [kind] :as window} (windows-state/window-of state window-id)]
+    {:heading {:prefix "" :leaf (windows-state/window-title window)}
+     :items [["Fly to it" [:fly-to-window window-id]]
+             (if (windows-state/pinned? state {:kind :window :id window-id})
+               ["Unpin from the grid" [:unpin {:kind :window :id window-id}]]
+               ["Pin to the grid" [:pin {:kind :window :id window-id}]])
+             ["Reload" [:reload-window window-id]]
+             [(if (= :web kind) "Open in the browser" "Open in VS Code") [:reveal-window window-id]]
+             ["Close" [:close-window window-id]]]}))
+
+(defn- sky-items [{:keys [view-filter moved-pages grid] :as state}]
   {:heading nil
    :items (cond-> [["Show the whole cloud" [:frame-all]]]
+            (seq (:cells grid)) (conj [(if (:shown? grid) "Hide the grid" "Show the grid") [:toggle-grid]])
             (visibility/filtering? view-filter) (conj ["Show everything" [:clear-filter]])
-            (seq moved-pages) (conj ["Put every page back" [:put-everything-back]])
+            (seq moved-pages) (conj ["Reset page positions" [:reset-page-positions]])
             (working-tree? state) (conj ["New file" [:new-file ""]])
-            true (conj ["Arrange" [:toggle-arrange-panel]]
+            true (conj ["Show a web page or file" [:toggle-windows-menu]]
+                       ["Arrange" [:toggle-arrange-panel]]
                        ["Views" [:toggle-views-panel]]))})
 
 (defn- definition-items [{definition-name :name :keys [choices]}]
@@ -55,6 +77,7 @@
     :page (page-items state id)
     :folder (folder-items state path)
     :definitions (definition-items menu)
+    :window (window-items state id)
     (sky-items state)))
 
 (defn- place-menu!
@@ -82,8 +105,10 @@
                    (dom/replace-children!
                     root
                     (list (when heading [:p.menu-heading (words/name-heading heading)])
-                          (for [[label event] items]
-                            [:button.menu-item {:role "menuitem" :on-click #(dispatch event)} label])))
+                          (for [[label event shortcut] items]
+                            [:button.menu-item {:role "menuitem" :on-click #(dispatch event)}
+                             label
+                             (when shortcut [:kbd.menu-shortcut shortcut])])))
                    (place-menu! root menu (count items))
                    (dom/toggle-class! root "is-open" true)
                    (js/setTimeout #(some-> (dom/find-in root ".menu-item") .focus) 0))

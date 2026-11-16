@@ -19,9 +19,16 @@
   (let [linear-red (linear-from-encoded red)
         linear-green (linear-from-encoded green)
         linear-blue (linear-from-encoded blue)
-        long-cone (Math/cbrt (+ (* 0.4122214708 linear-red) (* 0.5363325363 linear-green) (* 0.0514459929 linear-blue)))
-        medium-cone (Math/cbrt (+ (* 0.2119034982 linear-red) (* 0.6806995451 linear-green) (* 0.1073969566 linear-blue)))
-        short-cone (Math/cbrt (+ (* 0.0883024619 linear-red) (* 0.2817188376 linear-green) (* 0.6299787005 linear-blue)))]
+        ;; Each row of Ottosson's matrix from linear sRGB to cone responses
+        ;; sums to one, so white stirs every cone alike, and a row's weight
+        ;; for red follows from its other two.
+        cone-response (fn [green-weight blue-weight]
+                        (Math/cbrt (+ (* (- 1 green-weight blue-weight) linear-red)
+                                      (* green-weight linear-green)
+                                      (* blue-weight linear-blue))))
+        long-cone (cone-response 0.5363325363 0.0514459929)
+        medium-cone (cone-response 0.6806995451 0.1073969566)
+        short-cone (cone-response 0.2817188376 0.6299787005)]
     [(+ (* 0.2104542553 long-cone) (* 0.7936177850 medium-cone) (* -0.0040720468 short-cone))
      (+ (* 1.9779984951 long-cone) (* -2.4285922050 medium-cone) (* 0.4505937099 short-cone))
      (+ (* 0.0259040371 long-cone) (* 0.7827717662 medium-cone) (* -0.8086757660 short-cone))]))
@@ -29,10 +36,17 @@
 (defn- oklab->linear-rgb [[lightness green-red blue-yellow]]
   (let [long-cone (Math/pow (+ lightness (* 0.3963377774 green-red) (* 0.2158037573 blue-yellow)) 3)
         medium-cone (Math/pow (+ lightness (* -0.1055613458 green-red) (* -0.0638541728 blue-yellow)) 3)
-        short-cone (Math/pow (+ lightness (* -0.0894841775 green-red) (* -1.2914855480 blue-yellow)) 3)]
-    [(+ (* 4.0767416621 long-cone) (* -3.3077115913 medium-cone) (* 0.2309699292 short-cone))
-     (+ (* -1.2684380046 long-cone) (* 2.6097574011 medium-cone) (* -0.3413193965 short-cone))
-     (+ (* -0.0041960863 long-cone) (* -0.7034186147 medium-cone) (* 1.7076147010 short-cone))]))
+        short-cone (Math/pow (+ lightness (* -0.0894841775 green-red) (* -1.2914855480 blue-yellow)) 3)
+        ;; Each row of the matrix back to linear sRGB sums to one, so cones
+        ;; stirred alike give white, and a row's weight for the medium cone
+        ;; follows from its other two.
+        channel (fn [long-weight short-weight]
+                  (+ (* long-weight long-cone)
+                     (* (- 1 long-weight short-weight) medium-cone)
+                     (* short-weight short-cone)))]
+    [(channel 4.0767416621 0.2309699292)
+     (channel -1.2684380046 -0.3413193965)
+     (channel -0.0041960863 1.7076147010)]))
 
 (defn- degrees->radians [degrees] (* degrees (/ Math/PI 180)))
 (defn- radians->degrees [radians] (* radians (/ 180 Math/PI)))

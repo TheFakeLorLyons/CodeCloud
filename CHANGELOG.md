@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.4.3, pre-alpha
+
+### 0.4.3-6
+
+- The cloud answers Ctrl+Alt+R, Cmd+Alt+R on macOS, itself, before VS Code and any extension's keybindings see the keys, so **Run a command…** opens for the page in hand wherever the keyboard is in the cloud, a box in a pane included. `C` opens the same list while nothing is typed.
+- **Ignored**, at the foot of the Views pane and closed until opened, lists what the cloud leaves out, from what git ignores and the folders CodeCloud always passes over to what the cloud file's `:ignore` names and files of a kind CodeCloud does not read, each saying which. A folder opens to what it holds, and a box brings a folder or file into the cloud, where its pages show gray in a plain cloud and the inspector says why. Each cloud remembers the choice, and its own files come first under the file limit.
+
+### 0.4.3-5
+
+- **CodeCloud: Run a Command for the Page**, Ctrl+Alt+R or Cmd+Alt+R in the cloud, offers every command VS Code's extensions contribute and runs the one picked for the page in hand, the page being edited, brought closer, or under the pointer, as **Run a command…** in a page's right-click menu does, which now shows those keys beside it. From VS Code's own editor, the command offers the same list for the file there.
+- The Views pane lists the open windows after its folders. Unchecking a window hides it from the cloud while it stays open, remembered with the cloud's windows, and a hidden window pinned to the grid still shows in its cell. A click on a window's name, there or in the windows menu, shows it again and flies to it.
+- `T` switches **Auto-hide the toolbars**, and the switch says so, as the Arrange pane's spacing now names `[` and `]`.
+- Three numbers used in one place each moved into the function using it, the Oklab conversion works out one weight of each row from the other two, since its rows sum to one, and the helper for an outcome without effects says that it takes a changed state.
+
+### 0.4.3-4
+
+- **Auto-hide the toolbars**, a switch in the Views pane, hides the toolbar, the cloud's name, and the timeline until the pointer reaches the top or bottom edge of the view, as a taskbar hides, and they slide back a moment after it leaves. The grid fills the whole view meanwhile, and the bars return on glass over it. A bar holding the keyboard's focus, such as the toolbar while its address field is typed in, stays, and the choice holds for every cloud.
+- wavescope's reads around a line, `query_wavelet_context` and `get_cursor_context`, give agents the exact lines nearest the line alone, leaving out the medium and coarse bands and the peaks, which mostly repeat those lines, and so cutting such a read by about half. **Add the medium and coarse bands**, in the Coworkers pane, or `codecloud.agents.wavescopeBands` set to `all`, brings them back for a large codebase, and connected agents list their tools again with descriptions to match.
+- `get_summary_at_scale` lists its lines in order of line. wavescope listed a summary's peaks by strength, with the gaps between them marked in that order, and the hub sorts the peaks and marks the gaps again.
+- The title tells the grid where it ends even while it hides, so the grid's top returns below the title when the switch is turned off.
+
+### 0.4.3-3
+
+- A page's right-click menu runs commands for its file. **Run a command…** lists the commands VS Code's extensions offer, labeled as the command palette labels them, and runs the one chosen with the page's file in the editor group holding the cloud, its caret where the cloud's caret stands or at its first line, then brings the cloud back. Commands that act on the editor's file, as Calva's and Calva Power Tools' **Clay: Watch file** do, so act on the page.
+- The `codecloud.pageCommands` setting adds commands of your own to every page's menu, each a VS Code command with any arguments a keybinding would give it, or a command line run in a terminal of its own with `${file}`, `${relativeFile}`, and `${line}` put in. A command naming a `window` shows that address, or that port on this computer, in a window once it runs, and running it again reloads the window.
+- A window for a server on this computer waits while nothing answers at its port, trying each second for five minutes and saying what it waits for, so a window opened beside the command that starts a Clay notebook, a Jupyter server, or any other server shows the page once the server is up.
+- A port alone, such as `1971`, stands for `http://localhost:1971` in the windows menu's field and in **Show a Web Page in the Cloud**, with any path after it, as in `8000/docs`.
+- A web address in the REPL pane's output is a link, and a click shows its page in a window.
+- Agents' badges, pins, bands, glows, and change chips show on pages pinned to the grid, kept inside their cells.
+- The Views pane's **Color the toolbar's icons** switches the icons at the top right between their own colors and the text color, white on a dark sky, and the choice stays in `codecloud.toolbarColors`.
+- A window under the pointer no longer opens an empty tooltip beside it, and **Open in the Cloud** finishes as soon as it shows its notice, so a page command running it brings the cloud back at once.
+
+### 0.4.3-2
+
+- Grid cells rearrange and resize. Dragging a cell's header onto another cell trades their places, and the cell under the pointer shows an outline before the drop. The gaps between cells are borders, dragged to share the width between the columns or the height between the rows, and a double-click on one evens the cells beside it. The grid keeps its borders with its cells for each cloud.
+- Simple takes a color of its own. The row at the foot of the sky button's list picks it, and the `codecloud.simpleColor` setting keeps it. The chosen color fills the sky overhead and brightens toward the horizon, pages take their day look on a light color and their night look on a dark one, and **Default** returns Simple to the editor theme's colors.
+- The **Night Library** joins the environments, a maze of dark wood paneling, red carpet, and warm lamps with night pages.
+- A maze's walls are boxes 16 centimeters thick with posts where they meet, so a wall seen end on shows its end where a line one pixel wide stood before.
+- The icons at the top right each take a color of their own. The `codecloud.toolbarColors` setting draws them plain, in the text color, or names colors by icon, `{"all": "#ffffff"}` making them all white.
+- The Views pane holds two switches at its top, **Show names only (N)**, which moved there from the toolbar, and **Hide totals and hidden folders**. `N` still switches names on and off.
+- The Arrange pane's last button reads **Reset to default** and puts back everything the pane changes, the arrangement, the headers, the colors, the spacing, and pages moved by hand. The sky's right-click menu offers **Reset page positions** and a page's menu **Reset its position**.
+- The assistant's pane says that it offers insight into the code while agents connected through MCP can also edit it.
+- The dock's borders, the grid's borders and headers, and a window's bar keep the pointer while dragged, so crossing a window's page no longer drops the drag.
+
+### 0.4.3-1
+
+- Windows float in the cloud beside the code, each showing a web page, an HTML file with the scripts, styles, and pictures beside it, Markdown, a PDF, or an image. The toolbar's windows button opens a menu with a field for a web address, a choice of file from the workspace folder, and the open windows, and VS Code opens them through **Open in the Cloud**, in the right-click menus of the explorer and of an editor's title, and **Show a Web Page in the Cloud**. Each cloud remembers its windows and where they float.
+- A window faces the camera, and shows one pixel to a pixel when the code around it shows at the editor's size. A click lets the pointer through to it until the pointer leaves, its bar drags it, and its buttons reload it, pin it to the grid, open it in VS Code or the browser, and close it. A double-click flies to it, showing the whole cloud takes in the windows, and a window too far off to read wears its title as a label, as pages do.
+- Windows stay current. Markdown follows its editor as it is typed in, an HTML page reloads when any file in its folder changes, and PDFs and images reload with their files. A web page's address passes through VS Code, so a local server in a remote workspace arrives through a forwarded port. An HTML file comes from a server that listens only on 127.0.0.1 and answers only under a random path, so other pages cannot reach the folder. pdf.js, which ships inside the extension, draws each page of a PDF as it scrolls near the view.
+- The grid pins up to four pages or windows to the screen, laid out as VS Code lays out editor groups. One fills the view, two share it in columns, a third stacks with the second on the right, and a fourth makes two rows of two. **Pin to the grid**, in the right-click menu of a page or a window, adds one, `G` or the toolbar's grid button shows and hides the grid, and each cell's header sends its page or window back to the cloud. Each cloud remembers what its grid holds.
+- A pinned page shows its code at the editor's size in one column, scrolls under the wheel, and edits as anywhere in the cloud, and a flight to one of its lines, from Go to definition or a place the assistant names, scrolls its cell there. A pinned window works as it does in the cloud, and resting the pointer on its cell lets the pointer through.
+- Unchecking **Totals and hidden pages under the name**, a box in the Views pane, hides the totals and the list of hidden pages under the cloud's name, and the choice holds for every cloud.
+
 ## 0.4.2, pre-alpha
 
 ### 0.4.2-10

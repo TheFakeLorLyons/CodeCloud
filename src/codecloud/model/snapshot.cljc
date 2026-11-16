@@ -30,7 +30,9 @@
 
 (defn build-snapshot
   "Snapshot of file facts with :id, :label, :time, and optional :weights
-  and :include-paths. Manifests guide resolution and never become pages."
+  and :include-paths. Manifests guide resolution and never become pages,
+  and a page whose files are all marked :ignored?, read only because the
+  viewer chose to see them, is marked so too."
   [all-facts {:keys [id label time weights include-paths]}]
   (let [manifests (filterv :manifest all-facts)
         file-facts (resolution/resolve-imports (languages/with-companions (filterv (complement :manifest) all-facts))
@@ -54,6 +56,8 @@
                                                     :parse-error? (boolean (some :parse-error (:files node))))
                                              (cond-> (cycle-id-of node-id)
                                                (assoc :cycle-severity (severity-of-cycle (cycle-id-of node-id))))
+                                             (cond-> (and (seq (:files node)) (every? :ignored? (:files node)))
+                                               (assoc :ignored? true))
                                              (update :doc shortened-doc)
                                              (update :hotspots worst-hotspots)
                                              (dissoc :line-count :method-count :inbound-references))]))

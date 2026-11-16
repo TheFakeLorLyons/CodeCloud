@@ -29,6 +29,11 @@
              [(:backdrop backrooms) (:light backrooms) (get-in backrooms [:space :layout])
               (get-in backrooms [:space :walls :pattern]) (get-in backrooms [:space :floor :pattern])
               (get-in backrooms [:space :ceiling :pattern])]))))
+  (testing "the night library is a maze of dark wood and red carpet with night pages"
+    (let [library (environments/environment-of :night-library [])]
+      (is (= [:room :night :maze :stripes :carpet]
+             [(:backdrop library) (:light library) (get-in library [:space :layout])
+              (get-in library [:space :walls :pattern]) (get-in library [:space :floor :pattern])]))))
   (testing "every built-in pattern is one the room shader numbers"
     (is (every? (set environments/patterns)
                 (for [{:keys [space]} environments/built-in
@@ -78,7 +83,26 @@
       (is (= :simple (:id (environments/environment-of "Cellar" spaces))))
       (is (= "Greenhouse" (:id (environments/environment-of "Greenhouse" spaces)))))
     (testing "the sky button cycles through the built-in environments, then the spaces"
-      (is (= [:auto :day :twilight :night :clock :backrooms "Greenhouse" :simple]
-             (map #(environments/next-id % spaces) [:simple :auto :day :twilight :night :clock :backrooms "Greenhouse"])))
-      (is (= :simple (environments/next-id :backrooms [])))
+      (is (= [:auto :day :twilight :night :clock :backrooms :night-library "Greenhouse" :simple]
+             (map #(environments/next-id % spaces)
+                  [:simple :auto :day :twilight :night :clock :backrooms :night-library "Greenhouse"])))
+      (is (= :simple (environments/next-id :night-library [])))
       (is (= :simple (environments/next-id "Gone" spaces))))))
+
+(deftest simple-in-a-chosen-color
+  (let [simple (environments/environment-of :simple [])
+        night (environments/environment-of :night [])]
+    (testing "a color is kept as #rrggbb, and anything else as none"
+      (is (= "#aabbcc" (environments/chosen-color " #ABC ")))
+      (is (nil? (environments/chosen-color "navy")))
+      (is (nil? (environments/chosen-color nil))))
+    (testing "Simple takes the color overhead, brighter toward the horizon, with night pages on a dark color"
+      (let [{:keys [gradient light]} (environments/with-simple-color simple "#203040")]
+        (is (= (environments/hex-rgb "#203040") (:zenith gradient)))
+        (is (> (reduce + (:horizon gradient)) (reduce + (:zenith gradient))))
+        (is (= :night light))))
+    (testing "a light color gives pages their day look"
+      (is (= :day (:light (environments/with-simple-color simple "#e8e2d0")))))
+    (testing "other environments, and Simple without a color, stay as they are"
+      (is (= simple (environments/with-simple-color simple nil)))
+      (is (= night (environments/with-simple-color night "#203040"))))))

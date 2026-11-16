@@ -6,7 +6,8 @@
   (:require [codecloud.protocol :as protocol]))
 
 (defn unchanged
-  "The outcome leaving `state` as it is, with nothing more to do."
+  "The outcome of `state`, changed by the handler or not, with nothing
+  more to do."
   [state]
   {:state state :effects []})
 

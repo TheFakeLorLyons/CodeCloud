@@ -7,8 +7,10 @@
             [codecloud.presentation.zoom :as zoom]
             [codecloud.render.camera :as camera]
             [codecloud.render.gestures :as gestures]
+            [codecloud.render.grid :as grid]
             [codecloud.render.navigation :as navigation]
-            [codecloud.render.pages :as pages]))
+            [codecloud.render.pages :as pages]
+            [codecloud.render.windows :as windows]))
 
 (defn folder-screens
   "Where each folder's cloud falls on screen, from {path {:center
@@ -130,15 +132,18 @@
        :classes {"is-dim" (< (or emphasis 1) 0.5)}})))
 
 (defn label-candidates
-  "Labels for distant pages and folder clouds, with the test that keeps
-  them off nearer pages and the lifted page."
+  "Labels for distant pages and folder clouds, leaving out those the grid
+  covers, with the test that keeps them off nearer pages and the lifted
+  page."
   [app]
   (let [state @(:state app)
         lifting? (seq (:lifts @(:frame app)))]
-    {:candidates (concat (when (arrangement/shows-folder-clouds? (:arrangement state))
-                           (folder-labels app lifting?))
-                         (when-not (= :names (:display-mode state))
-                           (page-labels app state lifting?)))
+    {:candidates (remove (fn [{:keys [x y]}] (grid/covers? app x y))
+                         (concat (when (arrangement/shows-folder-clouds? (:arrangement state))
+                                   (folder-labels app lifting?))
+                                 (when-not (= :names (:display-mode state))
+                                   (page-labels app state lifting?))
+                                 (windows/label-candidates (:windows app) app)))
      :clear? (clear-test app)}))
 
 (defn refresh-hover!
@@ -171,9 +176,10 @@
              (filter #(<= (:line %) line (:end-line %)) (get-in state [:diagnostics (:path origin)])))))
 
 (defn shown-hover
-  "What the tooltip describes, which is the hovered thing unless it is
-  lifted or carried. Code waits until the pointer rests on it, and a line
-  with problems shows them sooner, even on the lifted page."
+  "What the tooltip describes, which is the hovered page, line, or folder
+  cloud unless it is lifted or carried. A window has its own bar and so
+  no tooltip. Code waits until the pointer rests on it, and a line with
+  problems shows them sooner, even on the lifted page."
   [app now]
   (let [{:keys [hover hover-since pointer directory-visuals visuals carried]} @(:frame app)
         state @(:state app)
@@ -200,4 +206,4 @@
                           :rank (get-in visuals [(:id hover) :rank])
                           :ranked-by (:label (arrangement/arrangement (:arrangement state)))
                           :moved? (contains? (:moved-pages state) (:id hover)))
-        hover))))
+        nil))))

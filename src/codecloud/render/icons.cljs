@@ -36,6 +36,9 @@
 (def backrooms
   (icon [:path {:d "M3 4.5h18M3 19.5h18M3 4.5l5.5 5h7l5.5-5M3 19.5l5.5-5h7l5.5 5M8.5 9.5v5M15.5 9.5v5M10.5 7h3"}]))
 
+(def library
+  (icon [:path {:d "M4 5h4v14H4zM9.5 7.5H13V19H9.5zM14.6 8.4l3.4-.9 3 10.9-3.4.9zM2.5 19.5h19"}]))
+
 (def space
   (icon [:path {:d "M12 3.5l7.5 4.2v8.6L12 20.5l-7.5-4.2V7.7z"}]
         [:path {:d "M4.5 7.7L12 12l7.5-4.3M12 12v8.5"}]))
@@ -77,14 +80,6 @@
   (icon [:path {:d "M12 3.5l8.5 4.25L12 12 3.5 7.75z"}]
         [:path {:d "M3.5 12.25L12 16.5l8.5-4.25"}]
         [:path {:d "M3.5 16.5L12 20.75l8.5-4.25"}]))
-
-(def pages-mode
-  (icon [:rect {:x 5 :y 3.5 :width 14 :height 17 :rx 2}]
-        [:path {:d "M8.5 8h7M8.5 12h5M10.5 16h5"}]))
-
-(def names-mode
-  (icon [:path {:d "M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1 1 0 0 1 0 1.4l-6.7 6.7a1 1 0 0 1-1.4 0z"}]
-        [:circle {:cx 8.5 :cy 8.5 :r 1.4}]))
 
 (def eye
   (icon [:path {:d "M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"}]
@@ -151,3 +146,30 @@
 
 (def send
   (icon [:path {:d "M12 19V5.5M6.5 10.5L12 5l5.5 5.5"}]))
+
+(def web
+  (icon [:circle {:cx 12 :cy 12 :r 8.5}]
+        [:path {:d "M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5s1.2-6.1 3.6-8.5z"}]))
+
+(def document
+  (icon [:path {:d "M7 3.5h7l4 4v13H7z"}]
+        [:path {:d "M14 3.5v4h4M9.5 12h6M9.5 15.5h6"}]))
+
+(def image
+  (icon [:rect {:x 3.5 :y 5 :width 17 :height 14 :rx 2}]
+        [:circle {:cx 9 :cy 10 :r 1.6}]
+        [:path {:d "M4 17.5l5-4.5 3.5 3 3-2.5 4.5 4"}]))
+
+(def reload
+  (icon [:path {:d "M19 12a7 7 0 1 1-2.05-4.95"}]
+        [:path {:d "M19.5 4.5v4h-4"}]))
+
+(def grid
+  (icon [:rect {:x 4 :y 4 :width 7 :height 7 :rx 1.2}]
+        [:rect {:x 13 :y 4 :width 7 :height 7 :rx 1.2}]
+        [:rect {:x 4 :y 13 :width 7 :height 7 :rx 1.2}]
+        [:rect {:x 13 :y 13 :width 7 :height 7 :rx 1.2}]))
+
+(def windows
+  (icon [:rect {:x 3.5 :y 7.5 :width 13 :height 12 :rx 1.6}]
+        [:path {:d "M3.5 10.5h13M7.5 4.5h13v12"}]))

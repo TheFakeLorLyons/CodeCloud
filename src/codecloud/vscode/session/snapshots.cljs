@@ -1,7 +1,7 @@
 (ns codecloud.vscode.session.snapshots
   "A session's reading of the codebase, the working tree analyzed as it
   changes and the commits of its history, with the messages asking for
-  snapshots and sources."
+  snapshots, sources, and what the cloud leaves out."
   (:require ["path" :as path]
             [clojure.string :as string]
             [codecloud.io.analyzer :as analyzer]
@@ -111,7 +111,8 @@
     (task/then (analyzer/read-configuration analyzer (api/document-text document))
                (fn [{:keys [config problems]}]
                  (when (and (= load-number (:configuration-loads @state)) (not (:disposed? @state)))
-                   (let [previous (:configuration @state)]
+                   (let [previous (:configuration @state)
+                         config (assoc config :shown-ignored (:shown-ignored @state))]
                      (when (not= problems (:problems @state))
                        (doseq [problem problems] (common/post-notice! session problem)))
                      (swap! state assoc :problems problems)
@@ -122,6 +123,26 @@
                        (watch-sources! session)
                        (analyze! session)
                        (load-history! session))))))))
+
+(defn show-ignored!
+  "Reads the codebase again with `shown-paths`, the ignored folders and
+  files the viewer chose to see, among the cloud's pages."
+  [{:keys [analyzer state] :as session} shown-paths]
+  (swap! state assoc :shown-ignored shown-paths)
+  (when (:configuration @state)
+    (swap! state update :configuration assoc :shown-ignored shown-paths)
+    (analyzer/forget-snapshots! analyzer)
+    (watch-sources! session)
+    (analyze! session)
+    (load-history! session)))
+
+(defmethod common/handle-message :view/list-ignored [{:keys [analyzer state] :as session} {folder :path}]
+  (when-let [configuration (:configuration @state)]
+    (-> (analyzer/ignored-entries analyzer configuration (or folder ""))
+        (task/then (fn [{:keys [entries more]}]
+                     (common/post! session (protocol/message :host/ignored {:path folder :entries entries :more more}))))
+        (task/recover (fn [error]
+                        (common/log! session (str "Listing what the cloud leaves out failed: " (task/error-text error))))))))
 
 (defn- snapshot-task [{:keys [analyzer state]} snapshot-id]
   (if (= :working-tree snapshot-id)

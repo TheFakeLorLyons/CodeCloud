@@ -184,7 +184,7 @@
                                [:button.action-button {:type "button" :on-click #(dispatch [:assistant-model])}
                                 icons/assistant "Choose a model"]]
                               [:p.assistant-hint
-                               "Ask about this codebase. The places an answer names fly there when clicked."]]
+                               "Ask about this codebase. Note: the assistant only offers insight into the code; agents connected through MCP can also edit it."]]
                              [:div.assistant-transcript {:aria-label "Conversation"}]
                              [:div.assistant-compose
                               [:textarea.assistant-input {:rows "1" :placeholder "Ask about this codebase"

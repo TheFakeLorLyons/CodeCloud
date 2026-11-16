@@ -231,9 +231,10 @@
 (defn- measure-page
   "The first pass of a frame, easing the page's fade and position, placing
   it, and measuring it on screen. A page reshaped by an edit keeps its
-  top left corner until the reshaping ends."
+  top left corner until the reshaping ends, and a page in the grid
+  stands where its cell puts it."
   [page-object {:keys [^js camera ^js forward ^js right ^js up positions offset-of carried-id elapsed motion viewport
-                       field-of-view display-mode]}]
+                       field-of-view display-mode pinned grid-area]}]
   (let [{:keys [id leaving? visual]} page-object
         fade-rate 3.5
         offset-rate 4.5
@@ -251,7 +252,9 @@
         offset (if (= id carried-id)
                  wanted-offset
                  (approach-vector settling-offset wanted-offset offset-rate elapsed))
-        [x y z] (add-vectors (add-vectors anchor offset) (local-to-world local-shift right up))
+        pinned-place (get pinned id)
+        [x y z] (or (:center pinned-place)
+                    (add-vectors (add-vectors anchor offset) (local-to-world local-shift right up)))
         ^js group (:group page-object)
         _ (.set (.-position group) x y z)
         _ (.copy (.-quaternion group) (.-quaternion camera))
@@ -279,6 +282,8 @@
         (assoc! :screen-y screen-y)
         (assoc! :half-width-pixels half-width-pixels)
         (assoc! :half-height-pixels half-height-pixels)
+        (assoc! :clip (:clip pinned-place))
+        (assoc! :covered (when-not pinned-place grid-area))
         (assoc! :on-screen? (and (> depth nearest-depth)
                                  (< (- screen-x half-width-pixels) width)
                                  (> (+ screen-x half-width-pixels) 0)
@@ -350,7 +355,9 @@
   (let [{:keys [id visual pixels-per-unit on-screen? colors]} page-object
         geometry (:geometry visual)
         names? (= :names display-mode)
-        {:keys [opacity see-through?]} (opacity/page-opacity page-object frame)
+        {:keys [opacity see-through?]} (if (:clip page-object)
+                                         {:opacity 1 :see-through? false}
+                                         (opacity/page-opacity page-object frame))
         ;; A minimap shows once a page is a few lines tall on screen, and
         ;; text once a line is a few pixels tall.
         least-minimap-pixels 14
@@ -446,6 +453,27 @@
     (into [] (comp (map first) (distinct)) (sort-by (comp - second) @wanted-sources))))
 
 ;; Questions about pages
+
+(defn within-cell
+  "Screen point [x y] of a page in the grid moved across, if need be, to
+  stand at least `left-room` pixels from its cell's left edge and
+  `right-room` from its right, so a mark drawn there stays in the cell.
+  The point of a page in the cloud stays where it is."
+  [{:keys [clip]} [x y] left-room right-room]
+  (if clip
+    [(min (max x (+ (:left clip) left-room)) (- (+ (:left clip) (:width clip)) right-room)) y]
+    [x y]))
+
+(defn hidden-at?
+  "True when nothing drawn over a page may show at screen point [x y],
+  outside its cell for a page in the grid, or under the grid for a page
+  in the cloud."
+  [{:keys [clip covered]} [x y]]
+  (let [inside? (fn [{:keys [left top width height]}]
+                  (and (<= left x (+ left width)) (<= top y (+ top height))))]
+    (boolean (if clip
+               (not (inside? clip))
+               (and covered (inside? covered))))))
 
 (defn page-of [{:keys [pages]} id]
   (get @pages id))

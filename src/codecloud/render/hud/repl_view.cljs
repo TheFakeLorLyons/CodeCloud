@@ -14,11 +14,25 @@
 
 ;; The log
 
+(defn- linked
+  "`text` as strings and links, each web address in it a link that shows
+  its page in a window, its last character never closing punctuation."
+  [text]
+  (let [address-pattern #"https?://[^\s\"'<>]*[^\s\"'<>.,;:!?)\]]"]
+    (loop [remaining text
+           parts []]
+      (if-let [address (re-find address-pattern remaining)]
+        (let [start (string/index-of remaining address)]
+          (recur (subs remaining (+ start (count address)))
+                 (conj parts (subs remaining 0 start) [:a.repl-link {:href "#" :title "Show it in a window"} address])))
+        (conj parts remaining)))))
+
 (defn- entry-element
   "An element showing one log entry, without the line break most output
-  ends with."
+  ends with, its web addresses links."
   [{:keys [kind text]}]
-  (dom/element [:div {:class ["repl-line" (str "is-" (name kind))]} (string/replace text #"\n$" "")]))
+  (dom/element (into [:div {:class ["repl-line" (str "is-" (name kind))]}]
+                     (linked (string/replace text #"\n$" "")))))
 
 (defn- shown-entry
   "Appends an element for `entry` to the log, returning what the pane
@@ -331,7 +345,11 @@
                                                           :on-click #(dispatch [:toggle-repl])}
                            icons/close]]
                          [:div.repl-menu {:role "menu"}]
-                         [:div.repl-log {:role "log" :aria-label "Output" :tabindex "0"}]
+                         [:div.repl-log {:role "log" :aria-label "Output" :tabindex "0"
+                                         :on-click (fn [^js event]
+                                                     (when-let [^js link (.closest (.-target event) ".repl-link")]
+                                                       (.preventDefault event)
+                                                       (dispatch [:open-window {:kind :web :source (.-textContent link)}])))}]
                          [:p.repl-empty "Open a REPL or a shell with +."]
                          [:label.repl-entry
                           [:span.repl-prompt]

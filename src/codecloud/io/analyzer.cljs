@@ -10,6 +10,7 @@
             [codecloud.languages.catalog :as catalog]
             [codecloud.model.config :as config]
             [codecloud.model.ignore :as ignore]
+            [codecloud.model.ignored :as ignored]
             [codecloud.model.selection :as selection]
             [codecloud.model.snapshot :as snapshot]
             [codecloud.model.source :as source]))
@@ -66,9 +67,9 @@
 (defn- configured-rule-sets [configuration]
   [(ignore/rule-set "" (concat config/always-ignored (:ignore configuration)))])
 
-(defn wanted-path-predicate
-  "Predicate for the paths a configuration analyzes, by name, :include,
-  and :ignore. Git's own ignore rules apply separately."
+(defn- own-path-predicate
+  "Predicate for the paths a configuration reads of its own accord, by
+  name, :include, and :ignore. Git's own ignore rules apply separately."
   [configuration]
   (let [scope (selection/compile-selection {:include (:include configuration)
                                             :ignore (concat config/always-ignored (:ignore configuration))})
@@ -76,6 +77,22 @@
     (fn [path]
       (and (source-path? path)
            (selection/selected? scope path)))))
+
+(defn- shown-paths
+  "The paths under :shown-ignored that stay inside the cloud's folder,
+  ignored folders and files the viewer chose to see."
+  [configuration]
+  (ignored/chosen-paths (:shown-ignored configuration)))
+
+(defn wanted-path-predicate
+  "Predicate for the paths a configuration analyzes, its own by name,
+  :include, and :ignore, and those inside :shown-ignored. Git's own ignore
+  rules apply separately."
+  [configuration]
+  (let [own? (own-path-predicate configuration)
+        shown? (ignored/shown-predicate (shown-paths configuration))]
+    (fn [path]
+      (or (own? path) (shown? path)))))
 
 (defn- measuring-options [configuration]
   (select-keys configuration [:flags :complection]))
@@ -133,8 +150,18 @@
       (remember! cache-key found)
       (unless-skipped found))))
 
-(defn- wanted-facts [configuration facts-list]
-  (filterv #(and % (or (:manifest %) (config/language-wanted? configuration (:language %)))) facts-list))
+(defn- wanted-facts
+  "The facts of `facts-list` the configuration keeps, a file shown though
+  ignored kept whatever its language."
+  [configuration facts-list]
+  (filterv #(and % (or (:manifest %) (:ignored? %) (config/language-wanted? configuration (:language %)))) facts-list))
+
+(defn- marked-ignored
+  "`facts-list` with the facts of `shown-paths`, files read only because
+  the viewer chose to see them, marked :ignored?."
+  [facts-list shown-paths]
+  (let [shown? (set shown-paths)]
+    (mapv #(if (and % (shown? (:path %))) (assoc % :ignored? true) %) facts-list)))
 
 (defn- remember-snapshot!
   "Keeps recent commit snapshots so scrubbing back and forth through
@@ -165,15 +192,33 @@
     (str "Read the first " file-limit " source files and skipped " skipped-count
          " more. Folders under :ignore in the cloud file focus it.")))
 
-(defn- working-tree-paths [analyzer configuration]
+(defn- shown-files
+  "Resolves to the files the viewer chose to see though ignored, each
+  chosen file that exists and every file inside each chosen folder."
+  [{:keys [root-directory]} configuration]
+  (task/then (task/all (for [chosen (shown-paths configuration)]
+                         (if (ignored/folder-path? chosen)
+                           (files/files-under root-directory (subs chosen 0 (dec (count chosen))))
+                           (task/then (files/stamp (files/absolute-path root-directory chosen))
+                                      (fn [stamp] (if stamp [chosen] []))))))
+             (fn [found] (vec (distinct (apply concat found))))))
+
+(defn- working-tree-paths
+  "Resolves to {:own :shown}, the paths the configuration reads and those
+  read besides because the viewer chose to see them though ignored."
+  [analyzer configuration]
   (let [{:keys [git-executable root-directory]} analyzer
-        wanted-file? (wanted-path-predicate configuration)]
-    (task/then (repository-root analyzer)
-               (fn [repository-root-path]
-                 (if repository-root-path
-                   (task/then (git/working-tree-files git-executable root-directory)
-                              (fn [paths] (filterv wanted-file? paths)))
-                   (files/walk-files root-directory (configured-rule-sets configuration) wanted-file?))))))
+        own? (own-path-predicate configuration)]
+    (task/then (task/all [(task/then (repository-root analyzer)
+                                     (fn [repository-root-path]
+                                       (if repository-root-path
+                                         (task/then (git/working-tree-files git-executable root-directory)
+                                                    (fn [paths] (filterv own? paths)))
+                                         (files/walk-files root-directory (configured-rule-sets configuration) own?))))
+                          (shown-files analyzer configuration)])
+               (fn [[own shown]]
+                 (let [own-set (set own)]
+                   {:own own :shown (filterv #(not (contains? own-set %)) shown)})))))
 
 (defn- working-text
   "Resolves to the text of the working tree file at `path`, which is what
@@ -262,16 +307,19 @@
   [analyzer configuration {:keys [on-progress open-text]}]
   (task/then
    (working-tree-paths analyzer configuration)
-   (fn [paths]
-     (let [analyzed-paths (vec (take file-limit (sort paths)))]
+   (fn [{:keys [own shown]}]
+     ;; The cloud's own files come first, so files shown though ignored
+     ;; never crowd them out.
+     (let [analyzed-paths (vec (take file-limit (concat (sort own) (sort shown))))]
        (task/then
         (parser-for analyzer analyzed-paths)
         (fn [{:keys [parse error]}]
           (task/then (working-tree-facts analyzer configuration analyzed-paths on-progress (or open-text (constantly nil))
                                          parse)
                      (fn [facts-list]
-                       {:snapshot (working-snapshot analyzer configuration (wanted-facts configuration facts-list))
-                        :notices (filterv some? [(limit-notice (- (count paths) (count analyzed-paths)))
+                       {:snapshot (working-snapshot analyzer configuration
+                                                    (wanted-facts configuration (marked-ignored facts-list shown)))
+                        :notices (filterv some? [(limit-notice (- (+ (count own) (count shown)) (count analyzed-paths)))
                                                  (parser-notice error)])}))))))))
 
 (defn- commit-facts
@@ -299,26 +347,76 @@
   (if-let [remembered (remembered-snapshot analyzer sha)]
     (task/resolved {:snapshot remembered :notices []})
     (let [{:keys [git-executable root-directory]} analyzer
-          wanted-file? (wanted-path-predicate configuration)]
+          own? (own-path-predicate configuration)
+          shown? (ignored/shown-predicate (shown-paths configuration))]
       (task/then
        (git/tree-files git-executable root-directory sha)
        (fn [entries]
-         (let [kept-entries (filterv #(wanted-file? (:path %)) entries)
+         (let [own-entries (filterv #(own? (:path %)) entries)
+               shown-entries (filterv #(and (not (own? (:path %))) (shown? (:path %))) entries)
+               kept-entries (into own-entries shown-entries)
                analyzed-entries (vec (take file-limit kept-entries))]
            (task/then
             (parser-for analyzer (map :path analyzed-entries))
             (fn [{:keys [parse error]}]
               (task/then (commit-facts analyzer (measuring-options configuration) analyzed-entries parse)
                          (fn [facts-list]
-                           {:snapshot (remember-snapshot! analyzer
-                                                          (snapshot/build-snapshot (wanted-facts configuration facts-list)
-                                                                                   {:id sha
-                                                                                    :label subject
-                                                                                    :time time
-                                                                                    :weights (:weights configuration)
-                                                                                    :include-paths (:include-paths configuration)}))
-                            :notices (filterv some? [(limit-notice (- (count kept-entries) (count analyzed-entries)))
-                                                     (parser-notice error)])}))))))))))
+                           (let [kept-facts (wanted-facts configuration (marked-ignored facts-list (map :path shown-entries)))]
+                             {:snapshot (remember-snapshot! analyzer
+                                                            (snapshot/build-snapshot kept-facts
+                                                                                     {:id sha
+                                                                                      :label subject
+                                                                                      :time time
+                                                                                      :weights (:weights configuration)
+                                                                                      :include-paths (:include-paths configuration)}))
+                              :notices (filterv some? [(limit-notice (- (count kept-entries) (count analyzed-entries)))
+                                                       (parser-notice error)])})))))))))))
+
+(defn ignored-entries
+  "Resolves to {:entries :more} for what the cloud leaves out inside
+  `folder`, a path ending in a slash, or \"\" for the cloud's folder, at
+  most a few hundred entries {:path :folder? :reason} and how many more
+  there were. Entries inside a folder left out carry no reason of their
+  own."
+  [analyzer configuration folder]
+  (let [{:keys [git-executable root-directory]} analyzer
+        most-listed 400]
+    (cond
+      (not (ignored/valid-path? folder)) (task/resolved {:entries [] :more 0})
+
+      (ignored/folder-path? folder)
+      (task/then (files/folder-children root-directory (subs folder 0 (dec (count folder))))
+                 (fn [children] (ignored/limited (ignored/child-entries folder children) most-listed)))
+
+      (not= "" folder) (task/resolved {:entries [] :more 0})
+
+      :else
+      (let [cloud-rules (configured-rule-sets configuration)
+            read? (config/source-path-predicate configuration)]
+        (task/then
+         (repository-root analyzer)
+         (fn [repository-root-path]
+           (if repository-root-path
+             (task/then (task/all [(git/ignored-files git-executable root-directory)
+                                   (git/working-tree-files git-executable root-directory)])
+                        (fn [[git-ignored files]]
+                          (ignored/limited (ignored/entries {:git-ignored git-ignored
+                                                             :files files
+                                                             :cloud-ignored? #(ignore/ignored? cloud-rules %)
+                                                             :cloud-folder-ignored? #(ignore/directory-ignored? cloud-rules %)
+                                                             :read? read?})
+                                           most-listed)))
+             ;; Outside git, CodeCloud applies each .gitignore itself, so
+             ;; whatever the rules leave out, CodeCloud left out.
+             (task/then (files/walk-tree root-directory cloud-rules)
+                        (fn [{:keys [files ignored-folders ignored-files]}]
+                          (ignored/limited (mapv #(assoc % :reason (if (= :git (:reason %)) :cloud (:reason %)))
+                                                 (ignored/entries {:git-ignored (into ignored-folders ignored-files)
+                                                                   :files files
+                                                                   :cloud-ignored? (constantly false)
+                                                                   :cloud-folder-ignored? (constantly false)
+                                                                   :read? read?}))
+                                           most-listed))))))))))
 
 (defn history
   "Resolves to recent commits that changed source files, newest first, or

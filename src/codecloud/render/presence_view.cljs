@@ -44,8 +44,16 @@
         (reset! index [snapshot built])
         built))))
 
-(defn- showing? [page-object]
+(defn- showing?
+  "True when a page is in view, in the cloud or in a grid cell."
+  [page-object]
   (and page-object (:on-screen? page-object) (not (:leaving? page-object)) (> (:opacity page-object 0) 0.05)))
+
+(def ^:private cell-room
+  "Pixels a mark needs inside a grid cell's edges, [left right], a badge's
+  circle centered on its point, a pin starting just right of its point,
+  and a chip ending just left of its point."
+  {:badge [14 14] :pin [2 32] :chip [80 4]})
 
 (defn- file-line-count [page-object path]
   (some #(when (= path (:path %)) (:line-count %)) (:files (:visual page-object))))
@@ -57,10 +65,16 @@
   [page-object path line right?]
   (when-let [line-count (file-line-count page-object path)]
     (when-let [[_ y] (editing-view/line-screen-point page-object path (dec (min (max 1 (or line 1)) (max 1 line-count))) 0)]
-      [(if right?
-         (+ (:screen-x page-object) (:half-width-pixels page-object))
-         (- (:screen-x page-object) (:half-width-pixels page-object)))
-       y])))
+      (let [[left-room right-room] (cell-room (if right? :pin :badge))
+            point (pages/within-cell page-object
+                                     [(if right?
+                                        (+ (:screen-x page-object) (:half-width-pixels page-object))
+                                        (- (:screen-x page-object) (:half-width-pixels page-object)))
+                                      y]
+                                     left-room
+                                     right-room)]
+        (when-not (pages/hidden-at? page-object point)
+          point)))))
 
 (defn- color-hex [{:keys [colors]} hue theme-key]
   (let [color-key [:hex hue theme-key]]
@@ -243,7 +257,8 @@
           (.setAttribute element "title" title)
           (.setAttribute element "aria-label" title))
         (.setProperty style "--agent" (color-hex layer hue theme-key))
-        (dom/toggle-class! element "is-compact" (< (:pixels-per-unit page-object 0) readable-pixels))
+        (dom/toggle-class! element "is-compact" (or (some? (:clip page-object))
+                                                     (< (:pixels-per-unit page-object 0) readable-pixels)))
         (dom/toggle-class! element "is-gone" (false? present?))
         (dom/toggle-class! element "is-followed" (= following id))
         (set! (.-transform style) (str "translate(" (js/Math.round x) "px, " (js/Math.round y) "px)"))
@@ -270,23 +285,36 @@
        (when whole? ", lines unknown for some changes")
        ". CodeCloud credits a change to the agent that last read its file, so the name is a guess."))
 
+(defn- chip-point
+  "Where a page's chip stands, at its top right corner, kept inside the
+  page's grid cell and below the cell's top as the page scrolls."
+  [{:keys [clip] :as page-object}]
+  (let [[left-room right-room] (:chip cell-room)
+        chip-rise 24
+        [x y] (pages/within-cell page-object
+                                 [(+ (:screen-x page-object) (:half-width-pixels page-object))
+                                  (- (:screen-y page-object) (:half-height-pixels page-object))]
+                                 left-room
+                                 right-room)]
+    [x (if clip (max y (+ (:top clip) chip-rise)) y)]))
+
 (defn- draw-chips!
   "Puts a chip counting lines added and removed at the top right corner
   of each page in view with recent changes."
   [layer presence-state page-of-path page-layer now]
   (let [shown (for [[page-id total] (presence-state/page-changes presence-state page-of-path now)
-                    :let [page-object (pages/page-of page-layer page-id)]
-                    :when (showing? page-object)]
-                [total page-object])]
-    (doseq [[index [total page-object]] (map-indexed vector shown)]
+                    :let [page-object (pages/page-of page-layer page-id)
+                          point (when (showing? page-object) (chip-point page-object))]
+                    :when (and point (not (pages/hidden-at? page-object point)))]
+                [total page-object point])]
+    (doseq [[index [total page-object [x y]]] (map-indexed vector shown)]
       (let [^js chip (dom/pooled-element! (:root layer) (:chips layer) index [:span.change-chip])
             style (.-style chip)
             title (chip-title total)]
         (dom/set-text! chip (chip-text total))
         (when (not= title (.getAttribute chip "title"))
           (.setAttribute chip "title" title))
-        (set! (.-transform style) (str "translate(" (js/Math.round (+ (:screen-x page-object) (:half-width-pixels page-object)))
-                                       "px, " (js/Math.round (- (:screen-y page-object) (:half-height-pixels page-object))) "px)"))
+        (set! (.-transform style) (str "translate(" (js/Math.round x) "px, " (js/Math.round y) "px)"))
         (set! (.-opacity style) (str (:opacity page-object 1)))
         (set! (.-display style) "")))
     (doseq [^js chip (drop (count shown) @(:chips layer))]
@@ -328,7 +356,8 @@
               (.setAttribute element "title" title)
               (.setAttribute element "aria-label" title))
             (.setProperty style "--agent" (color-hex layer (or hue 220) theme-key))
-            (dom/toggle-class! element "is-compact" (< (:pixels-per-unit page-object 0) readable-pixels))
+            (dom/toggle-class! element "is-compact" (or (some? (:clip page-object))
+                                                         (< (:pixels-per-unit page-object 0) readable-pixels)))
             (set! (.-transform style) (str "translate(" (js/Math.round (first point)) "px, " (js/Math.round (second point)) "px)"))
             (set! (.-opacity style) (str (:opacity page-object 1)))
             (set! (.-display style) "")))))

@@ -107,6 +107,25 @@
    [:p.coworkers-note (str (some (fn [[level _label description]] (when (= level current) description)) reporting-words)
                            " Each report costs the agent tokens.")]])
 
+(defn- wavescope-section [dispatch bands]
+  (let [every-band? (= :all bands)]
+    [:section.coworkers-section
+     [:h3 "wavescope"]
+     [:label.visibility-row
+      [:input.wavescope-bands-toggle (cond-> {:type "checkbox"
+                                              :data-focus "wavescope-bands"
+                                              :on-change (fn [^js event]
+                                                           (dispatch [:agents-wavescope-bands
+                                                                      (if (.. event -target -checked) :all :fine)]))}
+                                       every-band? (assoc :checked true))]
+      [:span.visibility-name "Add the medium and coarse bands"]]
+     [:p.coworkers-note (if every-band?
+                          (str "Reading around a line, agents get the exact lines nearest it, the signatures and sections "
+                               "further out, and the strongest peaks, which help them find their way in a large codebase.")
+                          (str "Reading around a line, agents get the exact lines nearest it alone, which costs them fewer "
+                               "tokens. The medium and coarse bands add the signatures and sections further out, which "
+                               "help in a large codebase."))]]))
+
 (defn- pane-content [dispatch {:keys [agents presence]} theme-key now]
   (let [{agent-list :agents :keys [pins]} presence
         agents-by-id (into {} (map (juxt :id identity)) agent-list)
@@ -139,6 +158,7 @@
      (when (seq agent-list)
        [:p.coworkers-note "CodeCloud credits a change to the agent that last read the file, so a change's agent is a guess."])
      (reporting-section dispatch (or (:reporting agents) :full))
+     (wavescope-section dispatch (or (:wavescope-bands agents) :fine))
      [:footer.coworkers-footer
       [:button.action-button {:type "button" :data-focus "connect" :on-click #(dispatch [:connect-agent])}
        icons/agents "Connect an agent"]])))

@@ -43,6 +43,7 @@
    :url (when (and hub (= :serving status)) (hub/url hub))
    :agents (mapv #(select-keys % [:name :since]) present)
    :reporting (settings/agents-reporting)
+   :wavescope-bands (settings/agents-wavescope-bands)
    :problem problem})
 
 (defn- clock-time [milliseconds]
@@ -146,6 +147,7 @@
    :cloud #(cloud-context host)
    :carets (fn [] @carets)
    :reporting settings/agents-reporting
+   :wavescope-bands settings/agents-wavescope-bands
    :on-agents #(agents-changed! host %)
    :on-presence #(reset! presence-summary %)
    :log! (:log! host)})
@@ -308,8 +310,8 @@
                                           (restart! host)
 
                                           ;; Agents keep their connections and list their tools again.
-                                          (affects? "codecloud.agents.reporting")
-                                          (do (some-> (:hub @agents) hub/reporting-changed!)
+                                          (some affects? ["codecloud.agents.reporting" "codecloud.agents.wavescopeBands"])
+                                          (do (some-> (:hub @agents) hub/tools-changed!)
                                               (show-status! host)))))]
       offer (conj (:disposable offer)))))
 
